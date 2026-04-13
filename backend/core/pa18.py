@@ -1,10 +1,9 @@
 from typing import Literal, List, Any, Tuple
 
 from pa16 import Ciphertext, Enc, Dec, PublicKey, SecretKey, elgamal_keygen, Message
-from pa11 import Group, GroupElement, generate_safe_prime
+from pa11 import Group
 
-p = generate_safe_prime(16)
-group = Group(p)
+group = Group.from_safe_prime(16)
 
 def OT_Receiver_Step1(b: Literal[0, 1], G: Group) -> Tuple[Tuple[PublicKey, PublicKey], SecretKey]:
     pk0, sk0 = elgamal_keygen(G)
