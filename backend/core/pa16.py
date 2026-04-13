@@ -10,11 +10,16 @@ class PublicKey:
         self.g = g
         self.h = h
 
-SecretKey = int
+class SecretKey:
+    def __init__(self, G: Group, g: GroupElement, x: int):
+        self.G = G
+        self.g = g
+        self.x = x
+
 Ciphertext = Tuple[GroupElement, GroupElement]
 Message = GroupElement
 
-def elgamal_keygen() -> Tuple[PublicKey, SecretKey]:
+def elgamal_keygen(G: Group) -> Tuple[PublicKey, SecretKey]:
     pass
 
 def Enc(pk: PublicKey, m: Message) -> Ciphertext:

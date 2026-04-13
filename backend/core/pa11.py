@@ -28,6 +28,12 @@ class Group:
                 # Because q is prime, any element != 1 in the 
                 # subgroup of squares is a generator.
                 return GroupElement(g_val, self)
+    
+    @classmethod
+    def from_safe_prime(cls, bits: int):
+        """Generate a group with a safe prime of the given bit length."""
+        p = generate_safe_prime(bits)
+        return cls(p)
 
 
 class GroupElement:

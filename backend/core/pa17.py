@@ -1,5 +1,6 @@
 from typing import Tuple, Any
 
+from pa11 import Group
 from pa15 import Sign, Verify
 from pa16 import Enc, Dec, elgamal_keygen, PublicKey, SecretKey, Message, Ciphertext
 
@@ -18,9 +19,9 @@ def CCA_PKC_Dec(sk_enc: SecretKey, vk_sign: PublicKey, C_E: Ciphertext, sigma: A
     else:
         raise SignatureInvalidError
 
-def contrast_with_plain_ElGamal(m):
-    pk_enc, sk_enc = elgamal_keygen()
-    pk_sign, sk_sign = elgamal_keygen()
+def contrast_with_plain_ElGamal(m, G: Group):
+    pk_enc, sk_enc = elgamal_keygen(G)
+    pk_sign, sk_sign = elgamal_keygen(G)
 
     C_E, sigma = CCA_PKC_Enc(pk_enc, sk_sign, m)
     m_dec = CCA_PKC_Dec(sk_enc, pk_sign, C_E, sigma)
