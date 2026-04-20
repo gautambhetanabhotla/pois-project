@@ -100,7 +100,6 @@ class Circuit:
         output_index = self.num_inputs + len(self.gates) - 1
         if output: 
             self.output_indices.append(output_index)
-            print("adding output index", output_index)
         return output_index
     
     def evaluate(self, inputs: List[int]) -> List[int]:
@@ -294,13 +293,13 @@ def create_millionaires_problem_circuit(n: int) -> Circuit:
         # OR via XOR: a OR b = a XOR b XOR (a AND b)
         result_xor = circuit.add_gate(GateType.XOR, result, can_decide_at_i)
         result_and = circuit.add_gate(GateType.AND, result, can_decide_at_i)
-        result = circuit.add_gate(GateType.XOR, result_xor, result_and)
+        result = circuit.add_gate(GateType.XOR, result_xor, result_and, output=(i == 0))
         
         # Update all_equal_so_far for the next iteration
         # all_equal_so_far = all_equal_so_far AND NOT(x[i] XOR y[i])
         xor_bit = circuit.add_gate(GateType.XOR, x_bit, y_bit)
         not_xor_bit = circuit.add_gate(GateType.NOT, xor_bit)
-        all_equal_so_far = circuit.add_gate(GateType.AND, all_equal_so_far, not_xor_bit, output=(i == 0))
+        all_equal_so_far = circuit.add_gate(GateType.AND, all_equal_so_far, not_xor_bit)
     
     return circuit
 
@@ -408,10 +407,6 @@ def create_bit_addition_circuit(n: int) -> Circuit:
 
 # Example usage and test cases
 if __name__ == "__main__":
-    print("=" * 70)
-    print("SECURE COMPUTATION CIRCUITS")
-    print("=" * 70)
-    print()
     
     # Test 1: Millionaire's Problem (x > y)
     print("TEST 1: MILLIONAIRE'S PROBLEM (x > y)")
@@ -428,20 +423,7 @@ if __name__ == "__main__":
     # Wires 0,1 = x bits; Wires 2,3 = y bits
     # x=3 (binary 11), y=1 (binary 01): 3 > 1? YES
     # Inputs: [1, 1, 1, 0] means x[0]=1, x[1]=1, y[0]=1, y[1]=0 -> x=0b11=3, y=0b01=1
-    test_cases = [
-        ([1, 1, 1, 0], 1, "x=3 > y=1"),  # 3 > 1 = True
-        ([0, 1, 1, 1], 0, "x=2 > y=3"),  # 2 > 3 = False
-        ([1, 0, 1, 0], 1, "x=1 > y=1"),  # 1 > 1 = False... wait this should be 0
-    ]
-    # Let me recalculate: LSB at index 0
-    # x[0]=1, x[1]=1 => x = 1*2^0 + 1*2^1 = 3
-    # y[0]=1, y[1]=0 => y = 1*2^0 + 0*2^1 = 1
-    # So [1,1,1,0] gives 3 > 1 = True ✓
-    # y[0]=1, y[1]=1 => y = 1*2^0 + 1*2^1 = 3
-    # So [1,0,1,1] gives 2 > 3 = False ✓
-    # x[0]=1, x[1]=0 => x = 1*2^0 + 0*2^1 = 1
-    # y[0]=1, y[1]=0 => y = 1*2^0 + 0*2^1 = 1
-    # So [1,0,1,0] gives 1 > 1 = False ✓
+
     test_cases = [
         ([1, 1, 1, 0], 1, "x=3 > y=1"),
         ([0, 1, 1, 1], 0, "x=2 > y=3"),
@@ -451,7 +433,7 @@ if __name__ == "__main__":
     
     for inputs, expected, description in test_cases:
         circuit.evaluate(inputs)
-        output = circuit.outputs
+        output = circuit.outputs[0]
         status = "✓" if output == expected else "✗"
         print(f"  {status} {description}: output={output} (expected {expected})")
     print()
@@ -475,7 +457,7 @@ if __name__ == "__main__":
     
     for inputs, expected, description in test_cases:
         circuit.evaluate(inputs)
-        output = circuit.outputs
+        output = circuit.outputs[0]
         status = "✓" if output == expected else "✗"
         print(f"  {status} {description}: output={output} (expected {expected})")
     print()
