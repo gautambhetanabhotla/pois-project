@@ -5,7 +5,9 @@ from pa11 import Group
 
 group = Group.from_safe_prime(16)
 
-def OT_Receiver_Step1(b: Literal[0, 1], G: Group) -> Tuple[Tuple[PublicKey, PublicKey], SecretKey]:
+Bit = Literal[0, 1]
+
+def OT_Receiver_Step1(b: Bit, G: Group) -> Tuple[Tuple[PublicKey, PublicKey], SecretKey]:
     pk0, sk0 = elgamal_keygen(G)
     pk1, sk1 = elgamal_keygen(G)
     return (pk0, pk1), sk0 if b == 0 else sk1
@@ -19,7 +21,7 @@ def OT_Sender_Step(
     return (c0, c1)
 
 def OT_Receiver_Step2(
-        b: Literal[0, 1],
+        b: Bit,
         c: Tuple[Ciphertext, Ciphertext],
         sk: SecretKey
     ) -> Message:

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, cast
 
 class GateType(Enum):
     """Supported gate types"""
@@ -18,7 +18,7 @@ class Gate:
                           - AND/XOR gates require exactly 2 inputs
                           - NOT gate requires exactly 1 input
         """
-        self.gate_type = gate_type
+        self.type = gate_type
         self.input_indices = list(input_indices)
         
         # Validate gate inputs
@@ -39,14 +39,14 @@ class Gate:
         Returns:
             Output of this gate (0 or 1)
         """
-        if self.gate_type == GateType.NOT:
+        if self.type == GateType.NOT:
             return 1 - wire_values[self.input_indices[0]]
-        elif self.gate_type == GateType.AND:
+        elif self.type == GateType.AND:
             return wire_values[self.input_indices[0]] & wire_values[self.input_indices[1]]
-        elif self.gate_type == GateType.XOR:
+        elif self.type == GateType.XOR:
             return wire_values[self.input_indices[0]] ^ wire_values[self.input_indices[1]]
         else:
-            raise ValueError(f"Unsupported gate type: {self.gate_type}")
+            raise ValueError(f"Unsupported gate type: {self.type}")
 
 class Circuit:
     """
@@ -70,8 +70,9 @@ class Circuit:
         
         self.num_inputs = num_inputs
         self.gates: List[Gate] = []
+        self.output_indices: List[int] = []
     
-    def add_gate(self, gate_type: GateType, *input_indices: int) -> int:
+    def add_gate(self, gate_type: GateType, *input_indices: int, output: bool = False) -> int:
         """
         Add a gate to the circuit.
         
@@ -96,19 +97,11 @@ class Circuit:
                 )
         
         self.gates.append(gate)
-        return self.num_inputs + len(self.gates) - 1
-    
-    def add_and_gate(self, input_a: int, input_b: int) -> int:
-        """Add an AND gate and return its output wire index."""
-        return self.add_gate(GateType.AND, input_a, input_b)
-    
-    def add_xor_gate(self, input_a: int, input_b: int) -> int:
-        """Add an XOR gate and return its output wire index."""
-        return self.add_gate(GateType.XOR, input_a, input_b)
-    
-    def add_not_gate(self, input_wire: int) -> int:
-        """Add a NOT gate and return its output wire index."""
-        return self.add_gate(GateType.NOT, input_wire)
+        output_index = self.num_inputs + len(self.gates) - 1
+        if output: 
+            self.output_indices.append(output_index)
+            print("adding output index", output_index)
+        return output_index
     
     def evaluate(self, inputs: List[int]) -> List[int]:
         """
@@ -141,37 +134,13 @@ class Circuit:
         for gate in self.gates:
             output = gate.evaluate(wire_values)
             wire_values.append(output)
-        
+
+        self.wire_values = wire_values
         return wire_values
     
-    def get_output(self, inputs: List[int]) -> int:
-        """
-        Evaluate the circuit and return only the final output bit.
-        
-        Args:
-            inputs: List of input bits
-            
-        Returns:
-            The output bit (0 or 1)
-        """
-        if not self.gates:
-            raise ValueError("Circuit has no gates; cannot determine output")
-        
-        wire_values = self.evaluate(inputs)
-        return wire_values[-1]  # Last wire is the circuit output
-    
-    def get_all_outputs(self, inputs: List[int]) -> List[int]:
-        """
-        Evaluate the circuit and return all gate outputs.
-        
-        Args:
-            inputs: List of input bits
-            
-        Returns:
-            List of all gate output values
-        """
-        wire_values = self.evaluate(inputs)
-        return wire_values[self.num_inputs:]  # Return only gate outputs
+    @property
+    def outputs(self) -> List[int]:
+        return [self.wire_values[idx] for idx in self.output_indices]
     
     def __repr__(self) -> str:
         """Return a string representation of the circuit."""
@@ -179,24 +148,6 @@ class Circuit:
             f"Circuit(inputs={self.num_inputs}, gates={len(self.gates)}, "
             f"total_wires={self.num_inputs + len(self.gates)})"
         )
-    
-    # def display_circuit(self) -> str:
-    #     """
-    #     Return a human-readable description of the circuit structure.
-        
-    #     Returns:
-    #         String describing each gate and its connections
-    #     """
-    #     lines = [f"Circuit: {self.num_inputs} inputs, {len(self.gates)} gates"]
-    #     lines.append(f"Input wires: 0 to {self.num_inputs - 1}")
-    #     lines.append("")
-        
-    #     for i, gate in enumerate(self.gates):
-    #         output_wire = self.num_inputs + i
-    #         input_str = ", ".join(str(idx) for idx in gate.input_indices)
-    #         lines.append(f"Wire {output_wire}: {gate.gate_type.value}({input_str})")
-        
-    #     return "\n".join(lines)
     
     def generate_graphviz_dot(self, name: str = "circuit") -> str:
         """
@@ -229,10 +180,10 @@ class Circuit:
                 GateType.XOR: "lightyellow",
                 GateType.NOT: "lightcoral",
             }
-            color = color_map.get(gate.gate_type, "lightgray")
+            color = color_map.get(gate.type, "lightgray")
             
             # Add gate node
-            dot_lines.append(f'    {gate_id} [label="{gate.gate_type.value}", fillcolor={color}];')
+            dot_lines.append(f'    {gate_id} [label="{gate.type.value}", fillcolor={color}];')
             
             # Add edges from inputs to this gate
             for input_idx in gate.input_indices:
@@ -241,12 +192,17 @@ class Circuit:
                 else:
                     source = f"gate_{input_idx - self.num_inputs}"
                 
-                dot_lines.append(f'    {source} -> {gate_id};')
+                dot_lines.append(
+                    f'    {source} -> {gate_id} [label="wire={input_idx}"];'
+                )
             
             # Add output wire node (only for the final gate as the circuit output)
-            if gate_idx == len(self.gates) - 1:
-                dot_lines.append(f'    wire_output [label="Output", fillcolor=lightgreen];')
-                dot_lines.append(f'    {gate_id} -> wire_output;')
+            if output_wire in self.output_indices:
+                # print("Gate index", gate_idx)
+                dot_lines.append(f'    wire_{output_wire} [label="Output {output_wire}", fillcolor=lightblue];')
+                dot_lines.append(
+                    f'    {gate_id} -> wire_{output_wire} [label="wire={output_wire}"];'
+                )
         
         dot_lines.append("}")
         return "\n".join(dot_lines)
@@ -280,25 +236,6 @@ class Circuit:
             return result
         except Exception as e:
             raise RuntimeError(f"Failed to render circuit visualization: {e}")
-    
-    # def visualize_to_string(self, format: str = "svg") -> str:
-    #     """
-    #     Generate a circuit visualization as a string (e.g., SVG, PDF).
-        
-    #     Args:
-    #         format: Output format ("svg", "pdf", "png", etc.)
-            
-    #     Returns:
-    #         Visualization as a string/bytes
-            
-    #     Raises:
-    #         ImportError: If graphviz is not installed
-    #     """
-
-    #     dot_string = self.generate_graphviz_dot()
-    #     g = graphviz.Source(dot_string, format=format)
-    #     return g.pipe(format=format)
-
 
 # ============================================================================
 # MANDATORY TEST CIRCUITS FOR SECURE COMPUTATION
@@ -318,7 +255,7 @@ def create_millionaires_problem_circuit(n: int) -> Circuit:
         n: Number of bits in each integer
         
     Returns:
-        Circuit with 2n inputs (n bits for x, n bits for y) and output wire index
+        Circuit with 2n inputs (n bits for x, n bits for y) and output wire indices
     """
     if n < 1:
         raise ValueError("n must be at least 1")
@@ -333,13 +270,13 @@ def create_millionaires_problem_circuit(n: int) -> Circuit:
     y_msb = 2 * n - 1
     
     # First bit: x[n-1] AND NOT y[n-1]
-    not_y_msb = circuit.add_not_gate(y_msb)
-    result = circuit.add_and_gate(x_msb, not_y_msb)
+    not_y_msb = circuit.add_gate(GateType.NOT, y_msb)
+    result = circuit.add_gate(GateType.AND, x_msb, not_y_msb)
     
     # Track whether all bits compared so far are equal
     # Initially: NOT(x[n-1] XOR y[n-1])
-    xor_msb = circuit.add_xor_gate(x_msb, y_msb)
-    all_equal_so_far = circuit.add_not_gate(xor_msb)
+    xor_msb = circuit.add_gate(GateType.XOR, x_msb, y_msb)
+    all_equal_so_far = circuit.add_gate(GateType.NOT, xor_msb)
     
     # For each lower bit position (from n-2 down to 0)
     for i in range(n - 2, -1, -1):
@@ -347,23 +284,23 @@ def create_millionaires_problem_circuit(n: int) -> Circuit:
         y_bit = n + i
         
         # Current bit comparison: x[i] > y[i] <=> x[i] AND NOT y[i]
-        not_y_bit = circuit.add_not_gate(y_bit)
-        x_greater_at_i = circuit.add_and_gate(x_bit, not_y_bit)
+        not_y_bit = circuit.add_gate(GateType.NOT, y_bit)
+        x_greater_at_i = circuit.add_gate(GateType.AND, x_bit, not_y_bit)
         
         # Condition to update result: all_equal_so_far AND x[i] > y[i]
-        can_decide_at_i = circuit.add_and_gate(all_equal_so_far, x_greater_at_i)
+        can_decide_at_i = circuit.add_gate(GateType.AND, all_equal_so_far, x_greater_at_i)
         
         # result = result OR can_decide_at_i
         # OR via XOR: a OR b = a XOR b XOR (a AND b)
-        result_xor = circuit.add_xor_gate(result, can_decide_at_i)
-        result_and = circuit.add_and_gate(result, can_decide_at_i)
-        result = circuit.add_xor_gate(result_xor, result_and)
+        result_xor = circuit.add_gate(GateType.XOR, result, can_decide_at_i)
+        result_and = circuit.add_gate(GateType.AND, result, can_decide_at_i)
+        result = circuit.add_gate(GateType.XOR, result_xor, result_and)
         
         # Update all_equal_so_far for the next iteration
         # all_equal_so_far = all_equal_so_far AND NOT(x[i] XOR y[i])
-        xor_bit = circuit.add_xor_gate(x_bit, y_bit)
-        not_xor_bit = circuit.add_not_gate(xor_bit)
-        all_equal_so_far = circuit.add_and_gate(all_equal_so_far, not_xor_bit)
+        xor_bit = circuit.add_gate(GateType.XOR, x_bit, y_bit)
+        not_xor_bit = circuit.add_gate(GateType.NOT, xor_bit)
+        all_equal_so_far = circuit.add_gate(GateType.AND, all_equal_so_far, not_xor_bit, output=(i == 0))
     
     return circuit
 
@@ -399,16 +336,16 @@ def create_equality_test_circuit(n: int) -> Circuit:
         y_bit = n + i
         
         # Compute x[i] XOR y[i]
-        xor_bit = circuit.add_xor_gate(x_bit, y_bit)
+        xor_bit = circuit.add_gate(GateType.XOR, x_bit, y_bit)
         
         # Compute XNOR: NOT(x[i] XOR y[i])
-        equal_bit = circuit.add_not_gate(xor_bit)
+        equal_bit = circuit.add_gate(GateType.NOT, xor_bit)
         
         # AND with accumulated result
         if all_equal is None:
             all_equal = equal_bit
         else:
-            all_equal = circuit.add_and_gate(all_equal, equal_bit)
+            all_equal = circuit.add_gate(GateType.AND, all_equal, equal_bit, output=(i == n - 1))
     
     return circuit
 
@@ -438,8 +375,6 @@ def create_bit_addition_circuit(n: int) -> Circuit:
     
     # Wires 0 to n-1: bits of x (LSB at index 0)
     # Wires n to 2n-1: bits of y (LSB at index n)
-    
-    sum_wires = []
     carry = 0
     
     for i in range(n):
@@ -447,32 +382,26 @@ def create_bit_addition_circuit(n: int) -> Circuit:
         y_bit = n + i
         
         # XOR of x[i] and y[i]
-        x_xor_y = circuit.add_xor_gate(x_bit, y_bit)
+        x_xor_y = circuit.add_gate(GateType.XOR, x_bit, y_bit, output=(i == 0))
         
         if i == 0:
             # First bit: no carry in
             # sum[0] = x[0] XOR y[0]
-            sum_wires.append(x_xor_y)
             # carry[0] = x[0] AND y[0]
-            carry = circuit.add_and_gate(x_bit, y_bit)
+            carry = circuit.add_gate(GateType.AND, x_bit, y_bit)
         else:
             # sum[i] = x[i] XOR y[i] XOR carry[i-1]
-            sum_bit = circuit.add_xor_gate(x_xor_y, carry)
-            sum_wires.append(sum_bit)
+            circuit.add_gate(GateType.XOR, x_xor_y, carry, output=True)
             
             # carry[i] = (x[i] AND y[i]) OR (carry[i-1] AND (x[i] XOR y[i]))
             # = (x[i] AND y[i]) OR (carry[i-1] AND x_xor_y)
-            x_and_y = circuit.add_and_gate(x_bit, y_bit)
-            carry_and_xor = circuit.add_and_gate(carry, x_xor_y)
+            x_and_y = circuit.add_gate(GateType.AND, x_bit, y_bit)
+            carry_and_xor = circuit.add_gate(GateType.AND, carry, x_xor_y)
             
             # OR via XOR: a OR b = a XOR b XOR (a AND b)
-            carry_xor = circuit.add_xor_gate(x_and_y, carry_and_xor)
-            carry_and = circuit.add_and_gate(x_and_y, carry_and_xor)
-            carry = circuit.add_xor_gate(carry_xor, carry_and)
-    
-    # Note: The final circuit output is the last gate added, but we have multiple sum outputs
-    # To use get_output(), the last gate added was the final carry computation
-    # The sum bits are accessible via circuit.evaluate() and extracting indices 2n to 2n+n-1
+            carry_xor = circuit.add_gate(GateType.XOR, x_and_y, carry_and_xor)
+            carry_and = circuit.add_gate(GateType.AND, x_and_y, carry_and_xor)
+            carry = circuit.add_gate(GateType.XOR, carry_xor, carry_and)
     
     return circuit
 
@@ -521,7 +450,8 @@ if __name__ == "__main__":
     ]
     
     for inputs, expected, description in test_cases:
-        output = circuit.get_output(inputs)
+        circuit.evaluate(inputs)
+        output = circuit.outputs
         status = "✓" if output == expected else "✗"
         print(f"  {status} {description}: output={output} (expected {expected})")
     print()
@@ -544,7 +474,8 @@ if __name__ == "__main__":
     ]
     
     for inputs, expected, description in test_cases:
-        output = circuit.get_output(inputs)
+        circuit.evaluate(inputs)
+        output = circuit.outputs
         status = "✓" if output == expected else "✗"
         print(f"  {status} {description}: output={output} (expected {expected})")
     print()
@@ -569,9 +500,9 @@ if __name__ == "__main__":
     ]
     
     for inputs, expected_sum, description in test_cases:
-        wire_values = circuit.evaluate(inputs)
+        circuit.evaluate(inputs)
         # Extract the n sum bits (starting at index 2n)
-        sum_bits = wire_values[2*n:2*n+n]
+        sum_bits = circuit.outputs
         status = "✓" if sum_bits == expected_sum else "✗"
         print(f"  {status} {description}: sum={sum_bits} (expected {expected_sum})")
     print()
