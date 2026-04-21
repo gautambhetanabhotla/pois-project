@@ -20,6 +20,3 @@ cd frontend
 bun install
 bun dev
 ```
-
-> [!NOTE]
-> `/api/*` on the frontend is proxied to `/api/*` on the backend.

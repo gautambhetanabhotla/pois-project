@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import List, Optional, cast
 
+from pa19 import Bit, SecureAND, SecureXOR, SecureNOT
+
 class GateType(Enum):
     """Supported gate types"""
     AND = "AND"
@@ -31,7 +33,7 @@ class Gate:
     
     def evaluate(self, wire_values: List[int]) -> int:
         """
-        Evaluate this gate given the current wire values.
+        Evaluate (insecurely) this gate given the current wire values.
         
         Args:
             wire_values: List of current values on all wires (0 or 1)
@@ -40,11 +42,11 @@ class Gate:
             Output of this gate (0 or 1)
         """
         if self.type == GateType.NOT:
-            return 1 - wire_values[self.input_indices[0]]
+            return SecureNOT(cast(Bit, wire_values[self.input_indices[0]]))
         elif self.type == GateType.AND:
-            return wire_values[self.input_indices[0]] & wire_values[self.input_indices[1]]
+            return SecureAND(cast(Bit, wire_values[self.input_indices[0]]), cast(Bit, wire_values[self.input_indices[1]]))
         elif self.type == GateType.XOR:
-            return wire_values[self.input_indices[0]] ^ wire_values[self.input_indices[1]]
+            return SecureXOR(cast(Bit, wire_values[self.input_indices[0]]), cast(Bit, wire_values[self.input_indices[1]]))
         else:
             raise ValueError(f"Unsupported gate type: {self.type}")
 
@@ -102,7 +104,7 @@ class Circuit:
             self.output_indices.append(output_index)
         return output_index
     
-    def evaluate(self, inputs: List[int]) -> List[int]:
+    def evaluate(self, inputs: List[Bit]) -> List[Bit]:
         """
         Evaluate the circuit with the given inputs.
         
@@ -138,7 +140,7 @@ class Circuit:
         return wire_values
     
     @property
-    def outputs(self) -> List[int]:
+    def outputs(self) -> List[Bit]:
         return [self.wire_values[idx] for idx in self.output_indices]
     
     def __repr__(self) -> str:
@@ -235,6 +237,13 @@ class Circuit:
             return result
         except Exception as e:
             raise RuntimeError(f"Failed to render circuit visualization: {e}")
+
+def Secure_Eval(circuit: Circuit, x_Alice: List[Bit], x_Bob: List[Bit]) -> List[Bit]:
+    try:
+        circuit.evaluate(x_Alice + x_Bob)
+        return circuit.outputs
+    except Exception as e:
+        raise RuntimeError(f"Failed to securely evaluate circuit: {e}")
 
 # ============================================================================
 # MANDATORY TEST CIRCUITS FOR SECURE COMPUTATION
@@ -413,7 +422,7 @@ if __name__ == "__main__":
     print("-" * 70)
     n = 2  # 2-bit numbers
     circuit = create_millionaires_problem_circuit(n)
-    circuit.visualize("millionaires_problem_circuit", format="svg")
+    circuit.visualize(f"millionaires_problem_circuit_{n}", format="svg")
     print(f"Circuit for {n}-bit comparison:")
     print(f"  Total inputs: {circuit.num_inputs} (2n={2*n})")
     print(f"  Total gates: {len(circuit.gates)}")
@@ -432,7 +441,7 @@ if __name__ == "__main__":
     ]
     
     for inputs, expected, description in test_cases:
-        circuit.evaluate(inputs)
+        circuit.evaluate(cast(List[Bit], inputs))
         output = circuit.outputs[0]
         status = "✓" if output == expected else "✗"
         print(f"  {status} {description}: output={output} (expected {expected})")
@@ -442,7 +451,7 @@ if __name__ == "__main__":
     print("TEST 2: EQUALITY TEST (x = y)")
     print("-" * 70)
     circuit = create_equality_test_circuit(n)
-    circuit.visualize("equality_test_circuit", format="svg")
+    circuit.visualize(f"equality_test_circuit_{n}", format="svg")
     print(f"Circuit for {n}-bit equality test:")
     print(f"  Total inputs: {circuit.num_inputs} (2n={2*n})")
     print(f"  Total gates: {len(circuit.gates)}")
@@ -456,7 +465,7 @@ if __name__ == "__main__":
     ]
     
     for inputs, expected, description in test_cases:
-        circuit.evaluate(inputs)
+        circuit.evaluate(cast(List[Bit], inputs))
         output = circuit.outputs[0]
         status = "✓" if output == expected else "✗"
         print(f"  {status} {description}: output={output} (expected {expected})")
@@ -466,7 +475,7 @@ if __name__ == "__main__":
     print("TEST 3: BIT-ADDITION (x + y mod 2^n)")
     print("-" * 70)
     circuit = create_bit_addition_circuit(n)
-    circuit.visualize("bit_addition_circuit", format="svg")
+    circuit.visualize(f"bit_addition_circuit_{n}", format="svg")
     print(f"Circuit for {n}-bit addition:")
     print(f"  Total inputs: {circuit.num_inputs} (2n={2*n})")
     print(f"  Total gates: {len(circuit.gates)}")
@@ -482,7 +491,7 @@ if __name__ == "__main__":
     ]
     
     for inputs, expected_sum, description in test_cases:
-        circuit.evaluate(inputs)
+        circuit.evaluate(cast(List[Bit], inputs))
         # Extract the n sum bits (starting at index 2n)
         sum_bits = circuit.outputs
         status = "✓" if sum_bits == expected_sum else "✗"

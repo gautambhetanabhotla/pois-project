@@ -1,16 +1,13 @@
 from typing import Literal, cast
 
 from pa11 import Group
-from pa18 import OT_Receiver_Step1, OT_Sender_Step, OT_Receiver_Step2
+from pa18 import OT
 
 Bit = Literal[0, 1]
 
 def SecureAND(a: Bit, b: Bit) -> Bit:
     """Return a AND b without revealing a or b."""
-    G = Group.from_safe_prime(16)
-    pk, sk = OT_Receiver_Step1(b, G)
-    c = OT_Sender_Step(pk, (G(0), G(a)))
-    return cast(Bit, OT_Receiver_Step2(b, c, sk).value)
+    return cast(Bit, OT(a, (0, b)))
 
 def SecureXOR(a: Bit, b: Bit) -> Bit:
     """Return a XOR b without revealing a or b."""
