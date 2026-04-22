@@ -1,34 +1,7 @@
 import os
 import sys
 import concurrent.futures
-
-# -----------------------------------------------------------------------------
-# DEPENDENCIES (PA #2)
-# -----------------------------------------------------------------------------
-# FUTURE IMPORTS (Uncomment when PA#2 is complete):
-# from pa2 import prp_encrypt, prp_decrypt 
-
-# FOR NOW: Using 'cryptography' library as a stub for our block cipher (AES)
-try:
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-    from cryptography.hazmat.backends import default_backend
-except ImportError:
-    print("Please install cryptography library: pip install cryptography")
-    sys.exit(1)
-
-BLOCK_SIZE = 16
-
-def prp_encrypt(k: bytes, block: bytes) -> bytes:
-    """Mock PA#2 PRP Encrypt using AES-ECB (which applies block cipher without chaining)"""
-    cipher = Cipher(algorithms.AES(k), modes.ECB(), backend=default_backend())
-    encryptor = cipher.encryptor()
-    return encryptor.update(block) + encryptor.finalize()
-
-def prp_decrypt(k: bytes, block: bytes) -> bytes:
-    """Mock PA#2 PRP Decrypt using AES-ECB"""
-    cipher = Cipher(algorithms.AES(k), modes.ECB(), backend=default_backend())
-    decryptor = cipher.decryptor()
-    return decryptor.update(block) + decryptor.finalize()
+from pa2 import prp_encrypt, prp_decrypt, BLOCK_SIZE
 
 # -----------------------------------------------------------------------------
 # PHASE 1: Setup & Padding Utility
