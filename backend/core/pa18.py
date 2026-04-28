@@ -1,11 +1,12 @@
-from typing import Literal, Tuple
-from logging import Logger
+from typing import Literal, Tuple, cast
+import logging
 
 from pa16 import Ciphertext, Enc, Dec, PublicKey, SecretKey, elgamal_keygen, Message
 from pa11 import Group
 
 OT_calls = 0 # Number of OT calls made
-logger = Logger(__name__)
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 Bit = Literal[0, 1]
 
@@ -35,9 +36,10 @@ def OT_Receiver_Step2(
 
 def OT(choice: Bit, m: Tuple[int, int]) -> Message:
     global OT_calls
-    logger.info(f"OT #{OT_calls}")
+    logger.info(f"OT #{OT_calls + 1}")
     OT_calls += 1
     G = Group.from_safe_prime(16)
     pk, sk = OT_Receiver_Step1(choice, G)
     c = OT_Sender_Step(pk, (G(m[0]), G(m[1])))
     return OT_Receiver_Step2(choice, c, sk)
+    # return m[choice]

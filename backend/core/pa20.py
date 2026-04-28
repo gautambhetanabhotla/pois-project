@@ -1,5 +1,8 @@
 from enum import Enum
 from typing import List, Optional, cast
+import argparse
+import sys
+import unittest
 
 from pa19 import Bit, SecureAND, SecureXOR, SecureNOT
 
@@ -31,9 +34,9 @@ class Gate:
             if len(self.input_indices) != 2:
                 raise ValueError(f"{gate_type.value} gate requires exactly 2 inputs, got {len(self.input_indices)}")
     
-    def evaluate(self, wire_values: List[int]) -> int:
+    def evaluate(self, wire_values: List[Bit]) -> Bit:
         """
-        Evaluate (insecurely) this gate given the current wire values.
+        Evaluate (securely) this gate given the current wire values.
         
         Args:
             wire_values: List of current values on all wires (0 or 1)
@@ -43,10 +46,13 @@ class Gate:
         """
         if self.type == GateType.NOT:
             return SecureNOT(cast(Bit, wire_values[self.input_indices[0]]))
+            # return cast(Bit, wire_values[self.input_indices[0]] ^ 1)
         elif self.type == GateType.AND:
             return SecureAND(cast(Bit, wire_values[self.input_indices[0]]), cast(Bit, wire_values[self.input_indices[1]]))
+            # return cast(Bit, wire_values[self.input_indices[0]] & wire_values[self.input_indices[1]])
         elif self.type == GateType.XOR:
             return SecureXOR(cast(Bit, wire_values[self.input_indices[0]]), cast(Bit, wire_values[self.input_indices[1]]))
+            # return cast(Bit, wire_values[self.input_indices[0]] ^ wire_values[self.input_indices[1]])
         else:
             raise ValueError(f"Unsupported gate type: {self.type}")
 
@@ -245,9 +251,6 @@ def Secure_Eval(circuit: Circuit, x_Alice: List[Bit], x_Bob: List[Bit]) -> List[
     except Exception as e:
         raise RuntimeError(f"Failed to securely evaluate circuit: {e}")
 
-# ============================================================================
-# MANDATORY TEST CIRCUITS FOR SECURE COMPUTATION
-# ============================================================================
 
 def create_millionaires_problem_circuit(n: int) -> Circuit:
     """
@@ -413,87 +416,146 @@ def create_bit_addition_circuit(n: int) -> Circuit:
     
     return circuit
 
+class TestSecureCircuits(unittest.TestCase):
+    def test_millionaires_problem_2bit(self) -> None:
+        circuit = create_millionaires_problem_circuit(2)
+        test_cases = [
+            ([1, 1, 1, 0], 1, "x=3 > y=1"),
+            ([0, 1, 1, 1], 0, "x=2 > y=3"),
+            ([1, 0, 1, 0], 0, "x=1 > y=1"),
+            ([0, 1, 0, 0], 1, "x=2 > y=0"),
+        ]
 
-# Example usage and test cases
-if __name__ == "__main__":
-    
-    # Test 1: Millionaire's Problem (x > y)
-    print("TEST 1: MILLIONAIRE'S PROBLEM (x > y)")
-    print("-" * 70)
-    n = 2  # 2-bit numbers
-    circuit = create_millionaires_problem_circuit(n)
-    circuit.visualize(f"millionaires_problem_circuit_{n}", format="svg")
-    print(f"Circuit for {n}-bit comparison:")
-    print(f"  Total inputs: {circuit.num_inputs} (2n={2*n})")
-    print(f"  Total gates: {len(circuit.gates)}")
-    print()
-    
-    # Test cases: x = [x1, x0] (MSB first conceptually, but LSB at index 0)
-    # Wires 0,1 = x bits; Wires 2,3 = y bits
-    # x=3 (binary 11), y=1 (binary 01): 3 > 1? YES
-    # Inputs: [1, 1, 1, 0] means x[0]=1, x[1]=1, y[0]=1, y[1]=0 -> x=0b11=3, y=0b01=1
+        for inputs, expected, description in test_cases:
+            with self.subTest(case=description, inputs=inputs):
+                circuit.evaluate(cast(List[Bit], inputs))
+                self.assertEqual(circuit.outputs, [expected])
 
-    test_cases = [
-        ([1, 1, 1, 0], 1, "x=3 > y=1"),
-        ([0, 1, 1, 1], 0, "x=2 > y=3"),
-        ([1, 0, 1, 0], 0, "x=1 > y=1"),
-        ([0, 1, 0, 0], 1, "x=2 > y=0"),
-    ]
-    
-    for inputs, expected, description in test_cases:
-        circuit.evaluate(cast(List[Bit], inputs))
-        output = circuit.outputs[0]
-        status = "✓" if output == expected else "✗"
-        print(f"  {status} {description}: output={output} (expected {expected})")
-    print()
-    
-    # Test 2: Equality Test (x = y)
-    print("TEST 2: EQUALITY TEST (x = y)")
-    print("-" * 70)
-    circuit = create_equality_test_circuit(n)
-    circuit.visualize(f"equality_test_circuit_{n}", format="svg")
-    print(f"Circuit for {n}-bit equality test:")
-    print(f"  Total inputs: {circuit.num_inputs} (2n={2*n})")
-    print(f"  Total gates: {len(circuit.gates)}")
-    print()
-    
-    test_cases = [
-        ([1, 1, 1, 1], 1, "x=3 = y=3"),
-        ([1, 0, 0, 1], 0, "x=1 ≠ y=2"),
-        ([0, 0, 0, 0], 1, "x=0 = y=0"),
-        ([1, 0, 1, 0], 1, "x=1 = y=1"),
-    ]
-    
-    for inputs, expected, description in test_cases:
-        circuit.evaluate(cast(List[Bit], inputs))
-        output = circuit.outputs[0]
-        status = "✓" if output == expected else "✗"
-        print(f"  {status} {description}: output={output} (expected {expected})")
-    print()
-    
-    # Test 3: Bit-Addition (x + y mod 2^n)
-    print("TEST 3: BIT-ADDITION (x + y mod 2^n)")
-    print("-" * 70)
+    def test_equality_test_2bit(self) -> None:
+        circuit = create_equality_test_circuit(2)
+        test_cases = [
+            ([1, 1, 1, 1], 1, "x=3 = y=3"),
+            ([1, 0, 0, 1], 0, "x=1 != y=2"),
+            ([0, 0, 0, 0], 1, "x=0 = y=0"),
+            ([1, 0, 1, 0], 1, "x=1 = y=1"),
+        ]
+
+        for inputs, expected, description in test_cases:
+            with self.subTest(case=description, inputs=inputs):
+                circuit.evaluate(cast(List[Bit], inputs))
+                self.assertEqual(circuit.outputs, [expected])
+
+    def test_bit_addition_2bit(self) -> None:
+        circuit = create_bit_addition_circuit(2)
+        test_cases = [
+            ([1, 0, 1, 0], [0, 1], "1 + 1 = 2"),
+            ([1, 1, 1, 0], [0, 0], "3 + 1 = 4 (mod 4) = 0"),
+            ([0, 0, 0, 0], [0, 0], "0 + 0 = 0"),
+            ([1, 0, 0, 1], [1, 1], "1 + 2 = 3"),
+        ]
+
+        for inputs, expected_sum, description in test_cases:
+            with self.subTest(case=description, inputs=inputs):
+                circuit.evaluate(cast(List[Bit], inputs))
+                self.assertEqual(circuit.outputs, expected_sum)
+
+
+def int_to_bits(value: int, n: int) -> List[Bit]:
+    if value < 0 or value >= (1 << n):
+        raise ValueError(f"value={value} is out of range for n={n} bits")
+    return [cast(Bit, (value >> i) & 1) for i in range(n)]
+
+
+def bits_to_int(bits: List[Bit]) -> int:
+    return sum((int(bit) << i) for i, bit in enumerate(bits))
+
+
+def run_tests() -> int:
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(TestSecureCircuits)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    return 0 if result.wasSuccessful() else 1
+
+
+def run_addition(n: int, x: int, y: int) -> int:
     circuit = create_bit_addition_circuit(n)
-    circuit.visualize(f"bit_addition_circuit_{n}", format="svg")
-    print(f"Circuit for {n}-bit addition:")
-    print(f"  Total inputs: {circuit.num_inputs} (2n={2*n})")
-    print(f"  Total gates: {len(circuit.gates)}")
-    print()
-    
-    # For addition, we need to extract the sum outputs
-    # Sum bits are at indices 2n to 2n+n-1 in the wire_values
-    test_cases = [
-        ([1, 0, 1, 0], [0, 1], "1 + 1 = 2"),
-        ([1, 1, 1, 0], [0, 0], "3 + 1 = 4 (mod 4) = 0"),
-        ([0, 0, 0, 0], [0, 0], "0 + 0 = 0"),
-        ([1, 0, 0, 1], [1, 1], "1 + 2 = 3"),
-    ]
-    
-    for inputs, expected_sum, description in test_cases:
-        circuit.evaluate(cast(List[Bit], inputs))
-        # Extract the n sum bits (starting at index 2n)
-        sum_bits = circuit.outputs
-        status = "✓" if sum_bits == expected_sum else "✗"
-        print(f"  {status} {description}: sum={sum_bits} (expected {expected_sum})")
-    print()
+    x_bits = int_to_bits(x, n)
+    y_bits = int_to_bits(y, n)
+    circuit.evaluate(x_bits + y_bits)
+    sum_bits = circuit.outputs
+    sum_value = bits_to_int(sum_bits)
+    print(f"addition n={n}")
+    print(f"x={x} bits={x_bits}")
+    print(f"y={y} bits={y_bits}")
+    print(f"sum_bits={sum_bits} sum={sum_value} (mod 2^{n})")
+    return 0
+
+
+def run_equality(n: int, x: int, y: int) -> int:
+    circuit = create_equality_test_circuit(n)
+    x_bits = int_to_bits(x, n)
+    y_bits = int_to_bits(y, n)
+    circuit.evaluate(x_bits + y_bits)
+    is_equal = circuit.outputs[0]
+    print(f"equality n={n}")
+    print(f"x={x} bits={x_bits}")
+    print(f"y={y} bits={y_bits}")
+    print(f"output={is_equal} (1 means equal)")
+    return 0
+
+
+def run_millionaires(n: int, x: int, y: int) -> int:
+    circuit = create_millionaires_problem_circuit(n)
+    x_bits = int_to_bits(x, n)
+    y_bits = int_to_bits(y, n)
+    circuit.evaluate(x_bits + y_bits)
+    is_greater = circuit.outputs[0]
+    print(f"millionaires n={n}")
+    print(f"x={x} bits={x_bits}")
+    print(f"y={y} bits={y_bits}")
+    print(f"output={is_greater} (1 means x > y)")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Secure circuit runner and test CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    subparsers.add_parser("test", help="Run unittest test cases")
+
+    addition_parser = subparsers.add_parser("addition", help="Run n-bit addition circuit")
+    addition_parser.add_argument("-n", type=int, required=True, help="Bit width")
+    addition_parser.add_argument("-x", type=int, required=True, help="Alice value")
+    addition_parser.add_argument("-y", type=int, required=True, help="Bob value")
+
+    equality_parser = subparsers.add_parser("equality", help="Run n-bit equality circuit")
+    equality_parser.add_argument("-n", type=int, required=True, help="Bit width")
+    equality_parser.add_argument("-x", type=int, required=True, help="Alice value")
+    equality_parser.add_argument("-y", type=int, required=True, help="Bob value")
+
+    millionaires_parser = subparsers.add_parser("millionaires", help="Run n-bit x > y circuit")
+    millionaires_parser.add_argument("-n", type=int, required=True, help="Bit width")
+    millionaires_parser.add_argument("-x", type=int, required=True, help="Alice value")
+    millionaires_parser.add_argument("-y", type=int, required=True, help="Bob value")
+
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "test":
+        return run_tests()
+    if args.command == "addition":
+        return run_addition(args.n, args.x, args.y)
+    if args.command == "equality":
+        return run_equality(args.n, args.x, args.y)
+    if args.command == "millionaires":
+        return run_millionaires(args.n, args.x, args.y)
+
+    parser.error(f"Unknown command: {args.command}")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
