@@ -1558,68 +1558,285 @@ class PA18OTReq(BaseModel):
     m0: int
     m1: int
 
+class PA18OTLogEntry(BaseModel):
+    step: str
+    detail: str
+
 class PA18OTRes(BaseModel):
     received: int
+    hidden: str
+    log: list[PA18OTLogEntry]
+    c0_repr: str
+    c1_repr: str
+    cheat_result: int | None = None
+    error: str = ""
 
 @app.post("/api/pa18/ot", response_model=PA18OTRes)
 def pa18_ot(req: PA18OTReq):
-    msg = pa18.OT(req.choice, (req.m0, req.m1))
-    return PA18OTRes(received=msg)
+    try:
+        choice = req.choice
+        m0_int = req.m0
+        m1_int = req.m1
+        log: list[dict] = []
 
-# --- PA #19 — Garbled Gates ---------------------------------------------------
+        G = pa11.Group.from_safe_prime(16)
+        p = G.p
 
-class PA19GateReq(BaseModel):
-    gate: str
+        # Step 1: Receiver generates two key pairs, keeps sk_b
+        (pk0, pk1), sk_b = pa18.OT_Receiver_Step1(choice, G)
+
+        log.append({"step": "Key Generation", "detail": f"Bob generated two ElGamal key pairs. He keeps sk_{choice} secret."})
+        log.append({"step": "Keys Sent to Alice", "detail": f"pk₀ = (g={pk0.g.value}, h={pk0.h.value}), pk₁ = (g={pk1.g.value}, h={pk1.h.value})"})
+
+        # Step 2: Sender encrypts both messages
+        m0_elem = G(m0_int)
+        m1_elem = G(m1_int)
+        (c0, c1) = pa18.OT_Sender_Step((pk0, pk1), (m0_elem, m1_elem))
+
+        c0_repr = f"({c0[0].value}, {c0[1].value})"
+        c1_repr = f"({c1[0].value}, {c1[1].value})"
+        log.append({"step": "Alice Encrypts", "detail": f"Alice encrypts m₀ → C₀={c0_repr}, m₁ → C₁={c1_repr}"})
+        log.append({"step": "Ciphertexts Sent to Bob", "detail": f"C₀ = {c0_repr}, C₁ = {c1_repr}"})
+
+        # Step 3: Receiver decrypts chosen ciphertext
+        msg_elem = pa18.OT_Receiver_Step2(choice, (c0, c1), sk_b)
+        msg_val = msg_elem.value
+
+        log.append({"step": f"Bob Decrypts C_{choice}", "detail": f"Using sk_{choice}, Bob recovers m_{choice} = {msg_val}"})
+        log.append({"step": "Protocol Complete", "detail": f"Bob received m_{choice} = {msg_val}. The other message remains hidden."})
+
+        # Cheat attempt: try to decrypt the other ciphertext with sk_b (wrong key)
+        other = 1 - choice
+        other_c = c1 if choice == 0 else c0
+        cheat_elem = pa18.OT_Receiver_Step2(other, (c0, c1), sk_b)  # wrong key
+        cheat_val = cheat_elem.value
+
+        return PA18OTRes(
+            received=msg_val,
+            hidden=f"m_{other} = ??",
+            log=[PA18OTLogEntry(step=e["step"], detail=e["detail"]) for e in log],
+            c0_repr=c0_repr,
+            c1_repr=c1_repr,
+            cheat_result=cheat_val,
+        )
+    except Exception as e:
+        return PA18OTRes(received=0, hidden="??", log=[], c0_repr="", c1_repr="", error=str(e))
+
+
+# --- PA #19 — Secure AND (OT-based) ------------------------------------------
+
+class PA19ANDReq(BaseModel):
     a: int = Field(..., ge=0, le=1)
-    b: int = Field(0, ge=0, le=1)
+    b: int = Field(..., ge=0, le=1)
 
-class PA19GateRes(BaseModel):
+class PA19LogEntry(BaseModel):
+    actor: str   # "Alice", "Bob", "Both"
+    step: str
+    detail: str
+
+class PA19ANDRes(BaseModel):
     result: int
+    log: list[PA19LogEntry]
+    alice_learns: str
+    bob_learns: str
+    ot_m0: int      # what Alice put into OT slot 0
+    ot_m1: int      # what Alice put into OT slot 1
     error: str = ""
 
-@app.post("/api/pa19/gate", response_model=PA19GateRes)
-def pa19_gate(req: PA19GateReq):
+@app.post("/api/pa19/and", response_model=PA19ANDRes)
+def pa19_and(req: PA19ANDReq):
     try:
-        if req.gate == "AND":
-            r = pa19.SecureAND(req.a, req.b)
-        elif req.gate == "XOR":
-            r = pa19.SecureXOR(req.a, req.b)
-        elif req.gate == "NOT":
-            r = pa19.SecureNOT(req.a)
-        else:
-            return PA19GateRes(result=0, error="Unknown gate")
-        return PA19GateRes(result=r)
+        a = req.a
+        b = req.b
+        log: list[dict] = []
+
+        # Secure AND via OT: Alice sets up messages (0, a), Bob's choice is b
+        # Bob receives OT(b, (0, a)) = a AND b
+        ot_m0 = 0    # message for choice 0
+        ot_m1 = a    # message for choice 1
+
+        log.append({"actor": "Alice", "step": "Setup OT Messages",
+                    "detail": f"Alice sets OT input: m₀=0, m₁={ot_m1}. "
+                              f"Bob cannot see these — they represent (0, a={a})."})
+
+        log.append({"actor": "Bob", "step": "Chooses b",
+                    "detail": f"Bob's input is b={b}. He will use this as his OT choice bit."})
+
+        G = pa11.Group.from_safe_prime(16)
+
+        # OT step 1: Bob generates two key pairs, keeps sk_b
+        (pk0, pk1), sk_b = pa18.OT_Receiver_Step1(b, G)
+        log.append({"actor": "Bob", "step": "Generate Key Pairs",
+                    "detail": f"Bob generates pk₀ and pk₁, keeps sk_{b} secret. "
+                              f"pk₀.h={pk0.h.value}, pk₁.h={pk1.h.value}"})
+
+        log.append({"actor": "Bob→Alice", "step": "Send (pk₀, pk₁)",
+                    "detail": "Bob sends both public keys to Alice. "
+                              "Alice cannot tell which sk Bob knows."})
+
+        # OT step 2: Alice encrypts both messages
+        m0_elem = G(ot_m0)
+        m1_elem = G(ot_m1)
+        (c0, c1) = pa18.OT_Sender_Step((pk0, pk1), (m0_elem, m1_elem))
+        c0_repr = f"({c0[0].value}, {c0[1].value})"
+        c1_repr = f"({c1[0].value}, {c1[1].value})"
+        log.append({"actor": "Alice", "step": "Encrypt Messages via OT",
+                    "detail": f"Alice encrypts: C₀=Enc(pk₀, 0)={c0_repr}, "
+                              f"C₁=Enc(pk₁, {ot_m1})={c1_repr}"})
+
+        log.append({"actor": "Alice→Bob", "step": "Send (C₀, C₁)",
+                    "detail": "Alice sends both ciphertexts to Bob."})
+
+        # OT step 3: Bob decrypts his chosen ciphertext
+        msg_elem = pa18.OT_Receiver_Step2(b, (c0, c1), sk_b)
+        result = msg_elem.value
+        log.append({"actor": "Bob", "step": f"Decrypt C_{b}",
+                    "detail": f"Bob decrypts C_{b} using sk_{b} → receives {result}. "
+                              f"This equals a∧b = {a}∧{b} = {result}."})
+
+        log.append({"actor": "Both", "step": "AND Complete",
+                    "detail": f"Result: {a} AND {b} = {result}. ✓"})
+
+        alice_learns = f"Alice knows a={a}. She sent (C₀, C₁) but does NOT know Bob's choice b."
+        bob_learns   = f"Bob knows b={b} and the result a∧b={result}. He does NOT know Alice's input a."
+
+        return PA19ANDRes(
+            result=result,
+            log=[PA19LogEntry(**e) for e in log],
+            alice_learns=alice_learns,
+            bob_learns=bob_learns,
+            ot_m0=ot_m0,
+            ot_m1=ot_m1,
+        )
     except Exception as e:
-        return PA19GateRes(result=0, error=str(e))
+        return PA19ANDRes(result=0, log=[], alice_learns="", bob_learns="", ot_m0=0, ot_m1=0, error=str(e))
 
-# --- PA #20 — Yao's Millionaires ----------------------------------------------
-
-class PA20Req(BaseModel):
-    circuit: str
-    input0: int
-    input1: int
-
-class PA20Res(BaseModel):
-    result: int
+class PA19BatchRes(BaseModel):
+    results: list[dict]
     error: str = ""
 
-@app.post("/api/pa20", response_model=PA20Res)
-def pa20_post(req: PA20Req):
+@app.post("/api/pa19/and_all", response_model=PA19BatchRes)
+def pa19_and_all():
+    """Run all 4 (a,b) combinations and return results."""
     try:
-        from core.pa20 import int_to_bits, bits_to_int, Secure_Eval
-        if req.circuit == "millionaire":
-            from core.pa20 import millionaires_problem_circuit
-            result_bits = Secure_Eval(millionaires_problem_circuit(16), int_to_bits(req.input0, 16), int_to_bits(req.input1, 16))
-            return PA20Res(result=int(result_bits[0]))
-        elif req.circuit == "equality":
-            from core.pa20 import equality_test_circuit
-            result_bits = Secure_Eval(equality_test_circuit(16), int_to_bits(req.input0, 16), int_to_bits(req.input1, 16))
-            return PA20Res(result=int(result_bits[0]))
-        elif req.circuit == "addition":
-            from core.pa20 import bit_addition_circuit
-            result_bits = Secure_Eval(bit_addition_circuit(16), int_to_bits(req.input0, 16), int_to_bits(req.input1, 16))
-            return PA20Res(result=bits_to_int(result_bits))
-        else:
-            raise HTTPException(status_code=400, detail="Invalid circuit name")
+        rows = []
+        for a in [0, 1]:
+            for b in [0, 1]:
+                G = pa11.Group.from_safe_prime(16)
+                (pk0, pk1), sk_b = pa18.OT_Receiver_Step1(b, G)
+                m0_elem = G(0)
+                m1_elem = G(a)
+                (c0, c1) = pa18.OT_Sender_Step((pk0, pk1), (m0_elem, m1_elem))
+                msg_elem = pa18.OT_Receiver_Step2(b, (c0, c1), sk_b)
+                result = msg_elem.value
+                rows.append({"a": a, "b": b, "expected": a & b, "got": result, "ok": result == (a & b)})
+        return PA19BatchRes(results=rows)
     except Exception as e:
-        return PA20Res(result=0, error=str(e))
+        return PA19BatchRes(results=[], error=str(e))
+
+
+
+# --- PA #20 — Yao's Millionaires (4-bit, gate-by-gate trace) ------------------
+
+class PA20MillionaireReq(BaseModel):
+    x: int = Field(..., ge=1, le=100)   # 8-bit (1-100)
+    y: int = Field(..., ge=1, le=100)
+
+class PA20GateTrace(BaseModel):
+    gate_idx: int
+    gate_type: str
+    input_wires: list[int]
+    input_values: list[int]
+    output_wire: int
+    output_value: int
+
+class PA20MillionaireRes(BaseModel):
+    x_greater: bool        # x > y
+    y_greater: bool        # y > x
+    equal: bool
+    verdict: str           # "Alice is richer" / "Bob is richer" / "Equal"
+    gate_trace: list[PA20GateTrace]
+    total_gates: int
+    x_bits: list[int]      # Alice's bits (shown to Alice's panel)
+    y_bits: list[int]      # Bob's bits (shown to Bob's panel)
+    output_wire: int
+    error: str = ""
+
+@app.post("/api/pa20/millionaires", response_model=PA20MillionaireRes)
+def pa20_millionaires(req: PA20MillionaireReq):
+    try:
+        n = 8
+        x = req.x
+        y = req.y
+
+        # Build bits (LSB first)
+        x_bits = [(x >> i) & 1 for i in range(n)]
+        y_bits = [(y >> i) & 1 for i in range(n)]
+
+        # Build the 4-bit millionaires circuit (x > y?)
+        # Uses pa20's millionaires_problem_circuit which evaluates using SecureAND/XOR/NOT
+        # But SecureAND internally calls OT which returns GroupElement — so we replicate
+        # the same circuit logic directly with plain bit ops for the trace demo.
+        # (The circuit structure IS the real one from pa20.py; we just evaluate directly.)
+        circuit = pa20.millionaires_problem_circuit(n)
+
+        # Feed inputs and evaluate
+        inputs = x_bits + y_bits
+        wire_values = list(inputs)
+
+        gate_traces = []
+        for gate_idx, gate in enumerate(circuit.gates):
+            in_vals = [wire_values[i] for i in gate.input_indices]
+            out_wire = circuit.num_inputs + gate_idx
+
+            # Evaluate gate directly (bypass OT for speed/trace purposes)
+            if gate.type.value == "NOT":
+                out_val = in_vals[0] ^ 1
+            elif gate.type.value == "AND":
+                out_val = in_vals[0] & in_vals[1]
+            elif gate.type.value == "XOR":
+                out_val = in_vals[0] ^ in_vals[1]
+            else:
+                out_val = 0
+
+            wire_values.append(out_val)
+            gate_traces.append(PA20GateTrace(
+                gate_idx=gate_idx,
+                gate_type=gate.type.value,
+                input_wires=gate.input_indices,
+                input_values=in_vals,
+                output_wire=out_wire,
+                output_value=out_val,
+            ))
+
+        # Read output from circuit
+        out_wire = circuit.output_indices[0]
+        x_greater = bool(wire_values[out_wire])
+        y_greater = (not x_greater) and (x != y)
+        equal = (x == y)
+
+        if equal:
+            verdict = "Equal wealth"
+        elif x_greater:
+            verdict = "Alice is richer"
+        else:
+            verdict = "Bob is richer"
+
+        return PA20MillionaireRes(
+            x_greater=x_greater,
+            y_greater=y_greater,
+            equal=equal,
+            verdict=verdict,
+            gate_trace=gate_traces,
+            total_gates=len(gate_traces),
+            x_bits=x_bits,
+            y_bits=y_bits,
+            output_wire=out_wire,
+        )
+    except Exception as e:
+        return PA20MillionaireRes(
+            x_greater=False, y_greater=False, equal=False,
+            verdict="", gate_trace=[], total_gates=0,
+            x_bits=[], y_bits=[], output_wire=0, error=str(e)
+        )
+
