@@ -13,6 +13,7 @@ _CORE = Path(__file__).resolve().parent / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
+
 import pa1  # noqa: E402
 import pa2  # noqa: E402
 import pa3  # noqa: E402
@@ -745,23 +746,20 @@ class PA20Res(BaseModel):
 @app.post("/api/pa20", response_model=PA20Res)
 def pa20_post(req: PA20Req):
     try:
-        if req.circuit == "millionaire":
-            # 8-bit inputs
-            result = Secure_Eval(create_millionaires_problem_circuit(8), int_to_bits(req.input0, 8), int_to_bits(req.input1, 8))
-            return PA20Res(result=result[0])
-        else:
-            return PA20Res(result=0, error=f"Unknown circuit: {req.circuit}")
+      from core.pa20 import int_to_bits, Secure_Eval
+      if req.circuit == "millionaire":
+          from core.pa20 import millionaires_problem_circuit
+          result = Secure_Eval(millionaires_problem_circuit(8), int_to_bits(input0, 16), int_to_bits(input1, 16))
+          return PA20Res(result=result)
+      elif req.circuit == "equality":
+          from core.pa20 import equality_test_circuit
+          result = Secure_Eval(equality_test_circuit(16), int_to_bits(input0, 16), int_to_bits(input1, 16))
+          return PA20Res(result=result)
+      elif req.circuit == "addition":
+          from core.pa20 import bit_addition_circuit
+          result = Secure_Eval(bit_addition_circuit(16), int_to_bits(input0, 16), int_to_bits(input1, 16))
+          return PA20Res(result=int("".join(str(b) for b in result), 2))
+      else:
+          raise HTTPException(status_code=400, detail="Invalid circuit name")
     except Exception as e:
         return PA20Res(result=0, error=str(e))
-
-
-
-
-
-
-
-
-
-
-
-

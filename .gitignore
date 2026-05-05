@@ -3,3 +3,4 @@ netlify.toml
 *.svg
 .github/workflows/deploy.yml
 project_spec.pdf
+.vscode/

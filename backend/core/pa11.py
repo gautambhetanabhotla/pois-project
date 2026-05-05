@@ -4,7 +4,7 @@ class Group:
         self.p = p
         self.q = (p-1) // 2
 
-    def __call__(self, value):
+    def __call__(self, value: int) -> GroupElement:
         """Helper to create elements: G(5) instead of GroupElement(5, G)."""
         return GroupElement(value % self.p, self)
 
@@ -63,6 +63,9 @@ class GroupElement:
                self.value == other.value and \
                self.group == other.group
 
+    def __int__(self):
+        return self.value
+
     def inverse(self):
         """Return the multiplicative inverse of this element in its group."""
         inv_value = pow(self.value, -1, self.group.p)
@@ -81,7 +84,7 @@ import random
 from pa8 import dlp_hash
 
 
-def keygen(G: Group, g: GroupElement = None) -> tuple:
+def keygen(G: Group, g: GroupElement | None = None) -> tuple:
     """
     Generate a Diffie-Hellman key pair.
     
