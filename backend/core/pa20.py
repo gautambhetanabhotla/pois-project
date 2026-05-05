@@ -252,7 +252,7 @@ def Secure_Eval(circuit: Circuit, x_Alice: List[Bit], x_Bob: List[Bit]) -> List[
         raise RuntimeError(f"Failed to securely evaluate circuit: {e}")
 
 
-def create_millionaires_problem_circuit(n: int) -> Circuit:
+def millionaires_problem_circuit(n: int) -> Circuit:
     """
     Millionaire's Problem: Securely compute x > y for n-bit integers.
     
@@ -316,7 +316,7 @@ def create_millionaires_problem_circuit(n: int) -> Circuit:
     return circuit
 
 
-def create_equality_test_circuit(n: int) -> Circuit:
+def equality_test_circuit(n: int) -> Circuit:
     """
     Secure Equality Test: Securely compute x = y for n-bit integers.
     
@@ -361,7 +361,7 @@ def create_equality_test_circuit(n: int) -> Circuit:
     return circuit
 
 
-def create_bit_addition_circuit(n: int) -> Circuit:
+def bit_addition_circuit(n: int) -> Circuit:
     """
     Secure Bit-Addition: Securely compute x + y (mod 2^n) for n-bit integers.
     
@@ -418,7 +418,7 @@ def create_bit_addition_circuit(n: int) -> Circuit:
 
 class TestSecureCircuits(unittest.TestCase):
     def test_millionaires_problem_2bit(self) -> None:
-        circuit = create_millionaires_problem_circuit(2)
+        circuit = millionaires_problem_circuit(2)
         test_cases = [
             ([1, 1, 1, 0], 1, "x=3 > y=1"),
             ([0, 1, 1, 1], 0, "x=2 > y=3"),
@@ -432,7 +432,7 @@ class TestSecureCircuits(unittest.TestCase):
                 self.assertEqual(circuit.outputs, [expected])
 
     def test_equality_test_2bit(self) -> None:
-        circuit = create_equality_test_circuit(2)
+        circuit = equality_test_circuit(2)
         test_cases = [
             ([1, 1, 1, 1], 1, "x=3 = y=3"),
             ([1, 0, 0, 1], 0, "x=1 != y=2"),
@@ -446,7 +446,7 @@ class TestSecureCircuits(unittest.TestCase):
                 self.assertEqual(circuit.outputs, [expected])
 
     def test_bit_addition_2bit(self) -> None:
-        circuit = create_bit_addition_circuit(2)
+        circuit = bit_addition_circuit(2)
         test_cases = [
             ([1, 0, 1, 0], [0, 1], "1 + 1 = 2"),
             ([1, 1, 1, 0], [0, 0], "3 + 1 = 4 (mod 4) = 0"),
@@ -477,7 +477,7 @@ def run_tests() -> int:
 
 
 def run_addition(n: int, x: int, y: int) -> int:
-    circuit = create_bit_addition_circuit(n)
+    circuit = bit_addition_circuit(n)
     x_bits = int_to_bits(x, n)
     y_bits = int_to_bits(y, n)
     circuit.evaluate(x_bits + y_bits)
@@ -491,7 +491,7 @@ def run_addition(n: int, x: int, y: int) -> int:
 
 
 def run_equality(n: int, x: int, y: int) -> int:
-    circuit = create_equality_test_circuit(n)
+    circuit = equality_test_circuit(n)
     x_bits = int_to_bits(x, n)
     y_bits = int_to_bits(y, n)
     circuit.evaluate(x_bits + y_bits)
@@ -504,7 +504,7 @@ def run_equality(n: int, x: int, y: int) -> int:
 
 
 def run_millionaires(n: int, x: int, y: int) -> int:
-    circuit = create_millionaires_problem_circuit(n)
+    circuit = millionaires_problem_circuit(n)
     x_bits = int_to_bits(x, n)
     y_bits = int_to_bits(y, n)
     circuit.evaluate(x_bits + y_bits)
