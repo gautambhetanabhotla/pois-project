@@ -6,4 +6,17 @@
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-export default defineConfig();
+// Dev-only proxy: forward `/api/*` to the FastAPI backend on :8000.
+// This block is ignored in production builds (Lovable / Cloudflare Worker).
+export default defineConfig({
+  vite: {
+    server: {
+      proxy: {
+        "/api": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+        },
+      },
+    },
+  },
+});
