@@ -76,43 +76,69 @@ function PA1() {
   const [seed, setSeed] = useState("deadbeef");
   const [len, setLen] = useState(64);
   const [out, setOut] = useState("");
+  const [stats, setStats] = useState<{
+    ratio: number; mono: number; runs: number; s1: number; s2: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Debounced call to backend pa1.PRG (HILL over 1024-bit DLP-OWF).
+  // ~1s per 32 bytes — debounce so slider drags don't queue up requests.
   useEffect(() => {
-    (async () => {
-      let buf = hexToBytes(seed.length ? seed : "00");
-      const blocks: Uint8Array[] = [];
-      while (blocks.reduce((s, b) => s + b.length, 0) < len) {
-        buf = await sha256(buf);
-        blocks.push(buf);
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/pa1/prg", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seed_hex: seed, out_bytes: len }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+        if (cancelled) return;
+        setOut(d.output_hex);
+        setStats({
+          ratio: d.ones_ratio, mono: d.p_monobit, runs: d.p_runs,
+          s1: d.p_serial1, s2: d.p_serial2,
+        });
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setOut(bytesToHex(blocks.reduce((acc, b) => {
-        const o = new Uint8Array(acc.length + b.length); o.set(acc); o.set(b, acc.length); return o;
-      }, new Uint8Array())).slice(0, len * 2));
-    })();
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
   }, [seed, len]);
 
-  // Frequency test (count of '1' bits / total)
   const bytes = hexToBytes(out);
-  let ones = 0;
-  for (const b of bytes) for (let i = 0; i < 8; i++) if (b & (1 << i)) ones++;
-  const total = bytes.length * 8;
-  const ratio = total ? ones / total : 0;
+  const ratio = stats?.ratio ?? 0;
 
   return (
     <div className="space-y-4">
       <div className="grid sm:grid-cols-2 gap-4">
         <div>
-          <Label>Seed (hex)</Label>
+          <Label>Seed (hex) — backend stretches any length</Label>
           <Input value={seed} onChange={(e) => setSeed(e.target.value)} className="font-mono" />
         </div>
         <div>
-          <Label>Output length: {len} bytes</Label>
+          <Label>
+            Output length: {len} bytes
+            {loading && <span className="ml-2 text-gb-yellow">computing…</span>}
+          </Label>
           <Slider value={[len]} min={8} max={256} step={8} onValueChange={(v) => setLen(v[0])} />
         </div>
       </div>
+      {error && (
+        <div className="rounded-md border border-gb-red/40 bg-gb-red/10 p-2 text-xs text-gb-red font-mono">
+          backend offline or unreachable: {error} — start uvicorn on :8000
+        </div>
+      )}
       <div>
-        <Label>PRG output G(s)</Label>
+        <Label>PRG output G(s) — pa1.PRG (HILL · 1024-bit DLP-OWF)</Label>
         <pre className="rounded-md border border-border bg-card p-3 text-[11px] font-mono break-all whitespace-pre-wrap max-h-40 overflow-auto">
-          {out}
+          {out || (loading ? "…" : "(no output)")}
         </pre>
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -125,6 +151,13 @@ function PA1() {
           <div className="mt-2 h-2 rounded bg-muted overflow-hidden">
             <div className="h-full bg-gb-aqua" style={{ width: `${ratio * 100}%` }} />
           </div>
+          {stats && (
+            <div className="mt-3 space-y-0.5 text-[11px] font-mono text-muted-foreground">
+              <div>NIST monobit p = <span className={stats.mono > 0.01 ? "text-gb-green" : "text-gb-red"}>{stats.mono.toFixed(4)}</span></div>
+              <div>NIST runs    p = <span className={stats.runs > 0.01 ? "text-gb-green" : "text-gb-red"}>{stats.runs.toFixed(4)}</span></div>
+              <div>NIST serial p1/p2 = {stats.s1.toFixed(4)} / {stats.s2.toFixed(4)}</div>
+            </div>
+          )}
         </Card>
         <Card className="p-3">
           <Label>Bit histogram</Label>
@@ -148,11 +181,45 @@ function PA1() {
  * ============================================================ */
 function PA2() {
   const [bits, setBits] = useState("0110");
+  const [key] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
+  const [result, setResult] = useState<{ result_hex: string; path_hex: string[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const depth = bits.length;
+
+  // Debounced fetch to backend pa2.F_ggm walking pa1.G_0 / G_1.
+  // Each step is one length-doubling PRG call (1024-bit modexps inside);
+  // ~0.5s per step, so 4–6 bits is the sweet spot.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/pa2/ggm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key_hex: key, bits }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const d = await res.json();
+        if (!cancelled) setResult(d);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [key, bits]);
+
   return (
     <div className="space-y-4">
       <div>
-        <Label>Input x ∈ {"{0,1}ⁿ"} (toggle bits)</Label>
+        <Label>
+          Input x ∈ {"{0,1}ⁿ"} (toggle bits)
+          {loading && <span className="ml-2 text-gb-yellow">computing…</span>}
+        </Label>
         <div className="flex gap-1">
           {bits.split("").map((b, i) => (
             <button
@@ -168,7 +235,15 @@ function PA2() {
           <Button size="sm" variant="outline" onClick={() => setBits(bits + "0")} disabled={bits.length >= 6}>+</Button>
           <Button size="sm" variant="outline" onClick={() => setBits(bits.slice(0, -1))} disabled={bits.length <= 2}>−</Button>
         </div>
+        <div className="mt-1 text-[11px] font-mono text-muted-foreground">
+          k = {key.slice(0, 16)}…  (random per page load)
+        </div>
       </div>
+      {error && (
+        <div className="rounded-md border border-gb-red/40 bg-gb-red/10 p-2 text-xs text-gb-red font-mono">
+          backend offline or unreachable: {error} — start uvicorn on :8000
+        </div>
+      )}
       <Card className="p-3 overflow-auto">
         <Label>GGM tree — highlighted path = F_k(x)</Label>
         <svg viewBox={`0 0 ${Math.pow(2, depth) * 60} ${depth * 60 + 40}`} className="w-full">
@@ -197,6 +272,15 @@ function PA2() {
         </svg>
       </Card>
       <MB>{`F_k(x) = G_{x_n}(G_{x_{n-1}}(\\dots G_{x_1}(k)\\dots))`}</MB>
+      {result && (
+        <Card className="p-3 space-y-1">
+          <Label>F_k(x) — pa2.F_ggm result</Label>
+          <Mono>{result.result_hex}</Mono>
+          <div className="text-[11px] text-muted-foreground">
+            {result.path_hex.length - 1} GGM steps · root {result.path_hex[0].slice(0, 8)}… → leaf {result.result_hex.slice(0, 8)}…
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -206,24 +290,49 @@ function PA2() {
  * ============================================================ */
 function PA3() {
   const [msg, setMsg] = useState("attack at dawn");
-  const [key] = useState(() => crypto.getRandomValues(new Uint8Array(16)));
+  const [key] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
   const [ct, setCt] = useState<{ iv: string; c: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function enc() {
-    const iv = crypto.getRandomValues(new Uint8Array(16));
-    const fk_iv = await sha256(new Uint8Array([...key, ...iv])); // PRF(k, iv) ≈ SHA(k||iv)
-    const c = xor(new TextEncoder().encode(msg), fk_iv);
-    setCt({ iv: bytesToHex(iv), c: bytesToHex(c) });
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/pa3/encrypt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key_hex: key, plaintext: msg }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      setCt({ iv: d.r_hex, c: d.c_hex });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   }
+
   return (
     <div className="space-y-3">
-      <div className="text-xs text-muted-foreground"><M>{`\\mathsf{Enc}_k(m) = (r, F_k(r) \\oplus m)`}</M></div>
+      <div className="text-xs text-muted-foreground">
+        <M>{`\\mathsf{Enc}_k(m) = (r, F_k(r) \\oplus m)`}</M>
+        <span className="ml-1">— pa3.Enc · pa2.F (AES-128) under the hood</span>
+      </div>
       <div><Label>Plaintext</Label><Input value={msg} onChange={(e) => setMsg(e.target.value)} /></div>
-      <Button onClick={enc} className="font-mono">encrypt</Button>
+      <Button onClick={enc} disabled={loading} className="font-mono">
+        {loading ? "encrypting…" : "encrypt"}
+      </Button>
+      {error && (
+        <div className="rounded-md border border-gb-red/40 bg-gb-red/10 p-2 text-xs text-gb-red font-mono">
+          backend offline or unreachable: {error} — start uvicorn on :8000
+        </div>
+      )}
       {ct && (
         <Card className="p-3 space-y-2">
-          <div><Mono>iv = {ct.iv}</Mono></div>
-          <div><Mono>c  = {ct.c}</Mono></div>
+          <div><Mono>r = {ct.iv}</Mono></div>
+          <div><Mono>c = {ct.c}</Mono></div>
           <div className="text-[11px] text-gb-aqua">Click encrypt twice — same plaintext, different ciphertext (IND-CPA).</div>
         </Card>
       )}

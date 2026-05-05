@@ -5,7 +5,7 @@ from typing import Tuple
 import os
 import sys
 import unittest
-import secrets
+import pa1
 
 from pa11 import Group, GroupElement
 
@@ -31,7 +31,7 @@ Message = GroupElement
 
 def elgamal_keygen(G: Group) -> Tuple[PublicKey, SecretKey]:
     """Generates the public and private keys using the specified cyclic Group."""
-    x = secrets.randbelow(G.q - 1) + 1  # 1 to q-1
+    x = pa1.randbelow(G.q - 1) + 1  # 1 to q-1
     g = G.generator()
     h = g ** x
     
@@ -41,7 +41,7 @@ def elgamal_keygen(G: Group) -> Tuple[PublicKey, SecretKey]:
 
 def Enc(pk: PublicKey, m: Message) -> Ciphertext:
     """Implement ElGamal Encryption."""
-    r = secrets.randbelow(pk.q - 1) + 1
+    r = pa1.randbelow(pk.q - 1) + 1
     c1 = pk.g ** r
     c2 = m * (pk.h ** r)
     return c1, c2
@@ -82,7 +82,7 @@ def cpa_game(G: Group, rounds: int = 20) -> float:
     m1 = G(20)
     
     for _ in range(rounds):
-        b = secrets.randbelow(2)
+        b = pa1.randbelow(2)
         m_b = m0 if b == 0 else m1
         c = Enc(pk, m_b)
         
@@ -100,7 +100,7 @@ def cpa_game(G: Group, rounds: int = 20) -> float:
                         guess = 1
                         break
         else:
-            guess = secrets.randbelow(2) # random guess for safe groups
+            guess = pa1.randbelow(2) # random guess for safe groups
             
         if guess == b:
             wins += 1
@@ -113,9 +113,8 @@ def cpa_game(G: Group, rounds: int = 20) -> float:
 # -----------------------------------------------------------------------------
 
 def get_real_safe_prime(bits: int) -> int:
-    import pa1
     while True:
-        p = secrets.randbits(bits)
+        p = pa1.randbits(bits)
         p |= (1 << (bits - 1)) | 1
         if p % 2 == 0: continue
         # To be safe prime, q = (p-1)//2 must be prime

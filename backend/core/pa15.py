@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import secrets
 import math
 import unittest
 from typing import Tuple, Dict
@@ -26,7 +25,7 @@ def mod_inverse(a: int, m: int) -> int:
 
 def get_prime(bits: int) -> int:
     while True:
-        p = secrets.randbits(bits)
+        p = pa1.randbits(bits)
         p |= (1 << (bits - 1)) | 1
         if pa1.miller_rabin(p):
             return p
