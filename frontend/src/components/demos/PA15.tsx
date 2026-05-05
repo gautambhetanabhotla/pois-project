@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { MB, M } from "@/components/Math";
-import { ShieldCheck, ShieldAlert, PenTool, Search, Zap, Trash2 } from "lucide-react";
+import { ShieldCheck, ShieldAlert, PenTool, Search, Zap, Trash2, Lock } from "lucide-react";
 
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{children}</div>;
