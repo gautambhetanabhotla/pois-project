@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { bytesToHex } from "@/lib/crypto-helpers";
+import { randomHex } from "@/lib/crypto-helpers";
 import { M } from "@/components/Math";
 
 function Mono({ children }: { children: React.ReactNode }) {
@@ -14,7 +14,7 @@ function Label({ children }: { children: React.ReactNode }) {
 
 export function PA3() {
   const [msg, setMsg] = useState("attack at dawn");
-  const [key] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
+  const [key] = useState(() => randomHex(16));
   const [ct, setCt] = useState<{ iv: string; c: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

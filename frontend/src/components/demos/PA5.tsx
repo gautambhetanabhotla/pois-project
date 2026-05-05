@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { M } from "@/components/Math";
-import { bytesToHex } from "@/lib/crypto-helpers";
+import { randomHex } from "@/lib/crypto-helpers";
 
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{children}</div>;
@@ -14,7 +14,7 @@ function Mono({ children }: { children: React.ReactNode }) {
 
 export function PA5() {
   // 16-byte key
-  const [key] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
+  const [key] = useState(() => randomHex(16));
   const [pairs, setPairs] = useState<{ m: string; t: string }[]>([]);
   const [m, setM] = useState("hello");
   const [forgeM, setForgeM] = useState("");

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { bytesToHex, hexToBytes } from "@/lib/crypto-helpers";
+import { bytesToHex, hexToBytes, randomHex } from "@/lib/crypto-helpers";
 
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{children}</div>;
@@ -16,8 +16,8 @@ export function PA6() {
   const [flip, setFlip] = useState(10 * 8); // default to flipping bit in "0100"
   
   // Keys
-  const [kEnc] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
-  const [kMac] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
+  const [kEnc] = useState(() => randomHex(16));
+  const [kMac] = useState(() => randomHex(16));
 
   const [encData, setEncData] = useState<{ nonce: string, c: string, t: string } | null>(null);
   const [decCpa, setDecCpa] = useState<string>("");

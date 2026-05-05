@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { bytesToHex, hexToBytes } from "@/lib/crypto-helpers";
+import { bytesToHex, hexToBytes, randomHex } from "@/lib/crypto-helpers";
 
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{children}</div>;
@@ -13,7 +13,7 @@ export function PA4() {
   const [error, setError] = useState<string | null>(null);
   
   // 16-byte key
-  const [key] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
+  const [key] = useState(() => randomHex(16));
 
   // Build a tiny "penguin": 24x24 grid with a recognizable shape (576 pixels/bytes)
   const w = 24, h = 24;

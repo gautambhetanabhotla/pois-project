@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { bytesToHex } from "@/lib/crypto-helpers";
+import { randomHex } from "@/lib/crypto-helpers";
 import { MB } from "@/components/Math";
 
 function Mono({ children }: { children: React.ReactNode }) {
@@ -13,7 +13,7 @@ function Label({ children }: { children: React.ReactNode }) {
 
 export function PA2() {
   const [bits, setBits] = useState("0110");
-  const [key] = useState(() => bytesToHex(crypto.getRandomValues(new Uint8Array(16))));
+  const [key] = useState(() => randomHex(16));
   const [result, setResult] = useState<{ result_hex: string; path_hex: string[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

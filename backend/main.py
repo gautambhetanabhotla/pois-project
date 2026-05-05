@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import os
 import sys
+import random
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-# Make backend/core/ importable so `import pa1, pa2, pa3` resolves the same way
-# the PA modules import each other internally (pa2 does bare `import pa1`).
 _CORE = Path(__file__).resolve().parent / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
@@ -17,6 +16,23 @@ if str(_CORE) not in sys.path:
 import pa1  # noqa: E402
 import pa2  # noqa: E402
 import pa3  # noqa: E402
+import pa4
+import pa5
+import pa6
+import pa7
+import pa8
+import pa9
+import pa10
+import pa11
+import pa12
+import pa13
+import pa14
+import pa15
+import pa16
+import pa17
+import pa18
+import pa19
+import pa20
 
 
 app = FastAPI(title="PoIS")
@@ -39,15 +55,6 @@ async def root():
 async def hello():
     return {"message": "Hello from API"}
 
-@app.get("/api/pa20")
-async def pa20(circuit: str, input0: int, input1: int):
-    from core.pa20 import int_to_bits, Secure_Eval
-    if circuit == "millionaire":
-        from core.pa20 import millionaires_problem_circuit
-        result = Secure_Eval(millionaires_problem_circuit(8), int_to_bits(input0, 16), int_to_bits(input1, 16))
-        return {"result": result[0]}
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown circuit: {circuit}")
 def _hex_to_bytes(h: str) -> bytes:
     h = h.strip().replace(" ", "")
     if not h:
@@ -225,8 +232,6 @@ def pa3_game(req: PA3GameReq):
 
 # --- PA #4 — Modes of Operation -----------------------------------------------
 
-import pa4
-
 class PA4EncReq(BaseModel):
     mode: str = Field(..., description="ECB, CBC, or CTR")
     key_hex: str
@@ -257,8 +262,6 @@ def pa4_encrypt(req: PA4EncReq):
 
 
 # --- PA #5 — MAC Forge --------------------------------------------------------
-
-import pa5
 
 class PA5SignReq(BaseModel):
     key_hex: str
@@ -294,8 +297,6 @@ def pa5_verify(req: PA5VerifyReq):
 
 
 # --- PA #6 — Malleability -----------------------------------------------------
-
-import pa6
 
 class PA6EncReq(BaseModel):
     key_enc_hex: str
@@ -357,9 +358,6 @@ def pa6_decrypt(req: PA6DecReq):
 
 # --- PA #7 — Merkle-Damgard ---------------------------------------------------
 
-import pa7
-import hashlib
-
 class PA7HashReq(BaseModel):
     blocks_hex: list[str]
 
@@ -368,15 +366,13 @@ class PA7HashRes(BaseModel):
 
 @app.post("/api/pa7/hash", response_model=PA7HashRes)
 def pa7_hash(req: PA7HashReq):
-    # For demo purposes, we will mimic the frontend's simplified chaining using SHA-256
-    # rather than pa7's dummy_compress, to show real avalanche.
-    # The frontend manually splits the string into 4-byte blocks and pads them.
     chain = []
     h = b"\x00" * 8
     chain.append(h.hex())
     for b_hex in req.blocks_hex:
         b = _hex_to_bytes(b_hex)
-        h = hashlib.sha256(h + b).digest()[:8]
+        # Using the compression function defined in PA7
+        h = pa7.dummy_compress(h, b)
         chain.append(h.hex())
     return PA7HashRes(chain_hex=chain)
 
@@ -392,17 +388,19 @@ class PA8HuntRes(BaseModel):
     
 @app.post("/api/pa8/hunt", response_model=PA8HuntRes)
 def pa8_hunt(req: PA8HuntReq):
-    import os
     seen = {}
     mask = (1 << req.bits) - 1
     
     # Extract number of bytes needed for the mask
     bytes_needed = (req.bits + 7) // 8
     
+    import pa8
+    toy_group = pa8.get_toy_group()
+    
     for i in range(1, 2_000_000):
         # random 4-byte value
         x = os.urandom(4).hex()
-        h = hashlib.sha256(x.encode()).digest()
+        h = pa8.dlp_compress(b"init", x.encode(), toy_group)
         
         # Truncate to 'bits'
         # e.g., if bits=20, we take first 3 bytes, convert to int, and mask
@@ -426,9 +424,6 @@ class PA9BenchRes(BaseModel):
 
 @app.post("/api/pa9/benchmark", response_model=list[PA9BenchRes])
 def pa9_benchmark():
-    import random
-    import math
-    
     ns = [8, 12, 16, 20]
     out = []
     
@@ -448,8 +443,6 @@ def pa9_benchmark():
 
 
 # --- PA #10 — HMAC ------------------------------------------------------------
-
-import pa10
 
 class PA10HmacReq(BaseModel):
     key_text: str
@@ -503,8 +496,6 @@ def pa11_dh(req: PA11DHReq):
 
 # --- PA #12 — Textbook RSA ----------------------------------------------------
 
-import pa12
-
 class PA12RsaReq(BaseModel):
     p: str
     q: str
@@ -551,8 +542,6 @@ def pa12_rsa(req: PA12RsaReq):
 
 # --- PA #13 — Miller-Rabin ----------------------------------------------------
 
-import pa13
-
 class PA13MrReq(BaseModel):
     n: str
     rounds: int
@@ -572,8 +561,6 @@ def pa13_mr(req: PA13MrReq):
 
 
 # --- PA #14 — Chinese Remainder Theorem ---------------------------------------
-
-import pa14
 
 class PA14CrtReq(BaseModel):
     residues: list[str]
@@ -601,7 +588,6 @@ class PA15OracleRes(BaseModel):
 
 @app.post("/api/pa15/oracle", response_model=PA15OracleRes)
 def pa15_oracle():
-    import random
     # Simulate a padding oracle that returns "valid" for PKCS#1 v1.5 padding 
     # roughly 5% of the time on random data, to mimic the attack progression.
     if random.random() < 0.05:
@@ -656,8 +642,6 @@ def pa16_elgamal(req: PA16ElGamalReq):
 
 # --- PA #17 — Schnorr Signatures ----------------------------------------------
 
-import hashlib
-
 class PA17SchnorrReq(BaseModel):
     p: str
     g: str
@@ -675,7 +659,6 @@ class PA17SchnorrRes(BaseModel):
 @app.post("/api/pa17/schnorr", response_model=PA17SchnorrRes)
 def pa17_schnorr(req: PA17SchnorrReq):
     try:
-        import random
         p = int(req.p)
         g = int(req.g)
         q = int(req.q)
@@ -689,7 +672,10 @@ def pa17_schnorr(req: PA17SchnorrReq):
         
         m_bytes = m.encode("utf-8")
         r_str = str(r).encode("utf-8")
-        h = hashlib.sha256(r_str + m_bytes).hexdigest()
+        
+        import pa8
+        h_bytes = pa8.dlp_hash(r_str + m_bytes)
+        h = h_bytes.hex()
         
         # Take first 8 chars to match the TS code:
         e = int(h[:8], 16) % q
@@ -705,7 +691,68 @@ def pa17_schnorr(req: PA17SchnorrReq):
     except Exception as e:
         return PA17SchnorrRes(y="", r="", e="", s="", error=str(e))
 
+# --- PA #18 — Oblivious Transfer ----------------------------------------------
+class PA18OTReq(BaseModel):
+    choice: int = Field(..., ge=0, le=1)
+    m0: int
+    m1: int
 
+class PA18OTRes(BaseModel):
+    received: int
+
+@app.post("/api/pa18/ot", response_model=PA18OTRes)
+def pa18_ot(req: PA18OTReq):
+    msg = pa18.OT(req.choice, (req.m0, req.m1))
+    return PA18OTRes(received=msg)
+
+# --- PA #19 — Garbled Gates ---------------------------------------------------
+
+class PA19GateReq(BaseModel):
+    gate: str
+    a: int = Field(..., ge=0, le=1)
+    b: int = Field(0, ge=0, le=1)
+
+class PA19GateRes(BaseModel):
+    result: int
+    error: str = ""
+
+@app.post("/api/pa19/gate", response_model=PA19GateRes)
+def pa19_gate(req: PA19GateReq):
+    try:
+        if req.gate == "AND":
+            r = pa19.SecureAND(req.a, req.b)
+        elif req.gate == "XOR":
+            r = pa19.SecureXOR(req.a, req.b)
+        elif req.gate == "NOT":
+            r = pa19.SecureNOT(req.a)
+        else:
+            return PA19GateRes(result=0, error="Unknown gate")
+        return PA19GateRes(result=r)
+    except Exception as e:
+        return PA19GateRes(result=0, error=str(e))
+
+# --- PA #20 — Yao's Millionaires ----------------------------------------------
+
+class PA20Req(BaseModel):
+    circuit: str
+    input0: int
+    input1: int
+
+class PA20Res(BaseModel):
+    result: int
+    error: str = ""
+
+@app.post("/api/pa20", response_model=PA20Res)
+def pa20_post(req: PA20Req):
+    try:
+        if req.circuit == "millionaire":
+            # 8-bit inputs
+            result = Secure_Eval(create_millionaires_problem_circuit(8), int_to_bits(req.input0, 8), int_to_bits(req.input1, 8))
+            return PA20Res(result=result[0])
+        else:
+            return PA20Res(result=0, error=f"Unknown circuit: {req.circuit}")
+    except Exception as e:
+        return PA20Res(result=0, error=str(e))
 
 
 
