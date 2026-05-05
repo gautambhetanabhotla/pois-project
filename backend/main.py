@@ -58,6 +58,9 @@ async def hello():
 
 def _hex_to_bytes(h: str) -> bytes:
     h = h.strip().replace(" ", "")
+    # Filter out any non-hex characters
+    import re
+    h = re.sub(r'[^0-9a-fA-F]', '', h)
     if not h:
         return b""
     if len(h) % 2 == 1:
@@ -65,6 +68,7 @@ def _hex_to_bytes(h: str) -> bytes:
     try:
         return bytes.fromhex(h)
     except ValueError as e:
+        # Should not happen after regex filtering, but just in case
         raise HTTPException(status_code=400, detail=f"invalid hex: {e}")
 
 
@@ -132,19 +136,36 @@ class PA2GgmReq(BaseModel):
 class PA2GgmRes(BaseModel):
     result_hex: str
     path_hex: list[str]
-
+    tree_hex: list[list[str]]
 
 @app.post("/api/pa2/ggm", response_model=PA2GgmRes)
 def pa2_ggm(req: PA2GgmReq):
     key = _hex_to_bytes(req.key_hex) if req.key_hex else os.urandom(16)
     if len(key) == 0:
         key = os.urandom(16)
+    
+    depth = len(req.bits)
+    tree: list[list[bytes]] = [[key]]
+    
+    # Compute the full tree level by level
+    for d in range(1, depth + 1):
+        prev_level = tree[d - 1]
+        curr_level = []
+        for node in prev_level:
+            curr_level.append(pa1.G0(node))
+            curr_level.append(pa1.G1(node))
+        tree.append(curr_level)
+        
+    tree_hex = [[n.hex() for n in level] for level in tree]
+
+    # Compute the specific path
     s = key
     path = [s.hex()]
     for ch in req.bits:
         s = pa1.G1(s) if ch == "1" else pa1.G0(s)
         path.append(s.hex())
-    return PA2GgmRes(result_hex=s.hex(), path_hex=path)
+        
+    return PA2GgmRes(result_hex=s.hex(), path_hex=path, tree_hex=tree_hex)
 
 
 class PA2PrpReq(BaseModel):
@@ -167,68 +188,41 @@ def pa2_prp(req: PA2PrpReq):
     return PA2PrpRes(ct_hex=pa2.prp_encrypt(k, b).hex())
 
 
-# --- PA #3 — CPA-secure SKE ---------------------------------------------------
+# --- PA #3 — CPA-secure SKE & IND-CPA Game ------------------------------------
 
-class PA3EncReq(BaseModel):
-    key_hex: str
-    plaintext: str
-
-
-class PA3EncRes(BaseModel):
-    r_hex: str
-    c_hex: str
-
-
-@app.post("/api/pa3/encrypt", response_model=PA3EncRes)
-def pa3_encrypt(req: PA3EncReq):
-    k = _hex_to_bytes(req.key_hex)
-    if len(k) != pa3.BLOCK_SIZE:
-        raise HTTPException(400, f"key must be {pa3.BLOCK_SIZE} bytes")
-    m = req.plaintext.encode("utf-8")
-    r, c = pa3.Enc(k, m)
-    return PA3EncRes(r_hex=r.hex(), c_hex=c.hex())
-
-
-class PA3DecReq(BaseModel):
-    key_hex: str
-    r_hex: str
-    c_hex: str
-
-
-class PA3DecRes(BaseModel):
-    plaintext: str
-
-
-@app.post("/api/pa3/decrypt", response_model=PA3DecRes)
-def pa3_decrypt(req: PA3DecReq):
-    k = _hex_to_bytes(req.key_hex)
-    if len(k) != pa3.BLOCK_SIZE:
-        raise HTTPException(400, f"key must be {pa3.BLOCK_SIZE} bytes")
-    r = _hex_to_bytes(req.r_hex)
-    if len(r) != pa3.BLOCK_SIZE:
-        raise HTTPException(400, f"r must be {pa3.BLOCK_SIZE} bytes")
-    c = _hex_to_bytes(req.c_hex)
-    m = pa3.Dec(k, r, c)
-    try:
-        text = m.decode("utf-8")
-    except UnicodeDecodeError:
-        text = m.hex()
-    return PA3DecRes(plaintext=text)
-
-
-class PA3GameReq(BaseModel):
-    rounds: int = Field(50, ge=1, le=500)
+class PA3PlayRoundReq(BaseModel):
+    m0: str
+    m1: str
     broken: bool = False
 
+class PA3PlayRoundRes(BaseModel):
+    c_hex: str
+    b: int
+    r_hex: str
 
-class PA3GameRes(BaseModel):
-    advantage: float
-
-
-@app.post("/api/pa3/cpa_game", response_model=PA3GameRes)
-def pa3_game(req: PA3GameReq):
+@app.post("/api/pa3/play_round", response_model=PA3PlayRoundRes)
+def pa3_play_round(req: PA3PlayRoundReq):
+    m0 = req.m0.encode("utf-8")
+    m1 = req.m1.encode("utf-8")
+    if len(m0) != len(m1):
+        raise HTTPException(400, "m0 and m1 must be equal length")
+    
+    # Challenger picks a random bit
+    import random
+    b = random.randint(0, 1)
+    m_b = m1 if b == 1 else m0
+    
+    # We use a fixed key for the session duration (just use a hardcoded one for the demo)
+    k = b"PA3_CPA_GAME_KEY" # 16 bytes
+    
     fn = pa3.Enc_broken if req.broken else pa3.Enc
-    return PA3GameRes(advantage=pa3.cpa_game(fn, rounds=req.rounds))
+    r, c = fn(k, m_b)
+    
+    return PA3PlayRoundRes(
+        c_hex=c.hex(),
+        b=b,
+        r_hex=r.hex()
+    )
 
 
 # --- PA #4 — Modes of Operation -----------------------------------------------
@@ -1133,23 +1127,41 @@ def pa12_encrypt_twice(req: PA12EncryptTwiceReq):
         pkcs15_ps2=ps2.hex()
     )
 
-
+import time
 # --- PA #13 — Miller-Rabin ----------------------------------------------------
 
 class PA13MrReq(BaseModel):
     n: str
     rounds: int
 
+class PA13MrRound(BaseModel):
+    a: str
+    d: str
+    s: int
+    x_initial: str
+    sequence: list[str]
+    verdict: str
+
 class PA13MrRes(BaseModel):
     is_prime: bool
+    rounds: list[PA13MrRound] = []
+    reason: str = ""
+    time_ms: float = 0.0
     error: str = ""
 
 @app.post("/api/pa13/miller_rabin", response_model=PA13MrRes)
 def pa13_mr(req: PA13MrReq):
     try:
+        t0 = time.perf_counter()
         n_val = int(req.n)
-        is_p = pa13.miller_rabin(n_val, req.rounds)
-        return PA13MrRes(is_prime=is_p)
+        res = pa13.miller_rabin_trace(n_val, req.rounds)
+        dt = (time.perf_counter() - t0) * 1000
+        return PA13MrRes(
+            is_prime=res["is_prime"],
+            rounds=[PA13MrRound(**r) for r in res["rounds"]],
+            reason=res["reason"],
+            time_ms=dt
+        )
     except Exception as e:
         return PA13MrRes(is_prime=False, error=str(e))
 

@@ -13,10 +13,14 @@ from pa1 import randbelow, randbits
 
 def miller_rabin(n: int, k: int = 40) -> bool:
     """Probabilistic primality test using the Miller-Rabin algorithm."""
+    return miller_rabin_trace(n, k)["is_prime"]
+
+def miller_rabin_trace(n: int, k: int = 40) -> dict:
+    """Probabilistic primality test using the Miller-Rabin algorithm with trace info."""
     if n == 2 or n == 3:
-        return True
+        return {"is_prime": True, "rounds": [], "reason": "Small prime"}
     if n < 2 or n % 2 == 0:
-        return False
+        return {"is_prime": False, "rounds": [], "reason": "Even or < 2"}
         
     d = n - 1
     s = 0
@@ -24,23 +28,41 @@ def miller_rabin(n: int, k: int = 40) -> bool:
         d //= 2
         s += 1
         
+    rounds_trace = []
     for _ in range(k):
         a = randbelow(n - 3) + 2  # Range [2, n-2]
         x = pow(a, d, n)
+        
+        round_info = {
+            "a": str(a),
+            "d": str(d),
+            "s": s,
+            "x_initial": str(x),
+            "sequence": [str(x)]
+        }
+        
         if x == 1 or x == n - 1:
+            round_info["verdict"] = "probably prime (base test)"
+            rounds_trace.append(round_info)
             continue
             
         composite = True
         for _ in range(s - 1):
             x = pow(x, 2, n)
+            round_info["sequence"].append(str(x))
             if x == n - 1:
                 composite = False
                 break
         
         if composite:
-            return False
+            round_info["verdict"] = "composite (witness)"
+            rounds_trace.append(round_info)
+            return {"is_prime": False, "rounds": rounds_trace, "reason": f"Witness {a} found composite"}
+        else:
+            round_info["verdict"] = "probably prime (square test)"
+            rounds_trace.append(round_info)
             
-    return True
+    return {"is_prime": True, "rounds": rounds_trace, "reason": "All rounds passed"}
 
 def is_prime(n: int) -> bool:
     """Sanity check function using 100 rounds."""

@@ -11,6 +11,7 @@ Security relies on the computational difficulty of factoring n = p*q.
 No external crypto libraries used.
 """
 
+import os
 import random
 import unittest
 import pa1
