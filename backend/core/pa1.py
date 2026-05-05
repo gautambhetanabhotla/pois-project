@@ -225,6 +225,28 @@ def G1(seed_bytes: bytes) -> bytes:
 
 
 # 7. BACKWARD REDUCTION: PRG ==> OWF
+#
+# Claim: f(s) := G(s) is a one-way function whenever G is a length-doubling PRG.
+#
+# Why an adversary given y = G(s) cannot efficiently recover s.
+# Suppose, for contradiction, there is an efficient algorithm A such that for
+# random s in {0,1}^n, A(G(s)) outputs some s' with G(s') = G(s) with
+# non-negligible probability eps. Build a PRG distinguisher D:
+#
+#     D(y): run s' <- A(y);  if G(s') == y output 1 ("real"), else output 0.
+#
+# Analysis of D:
+#   - On y = G(s), s uniform in {0,1}^n:  Pr[D = 1] >= eps  (A succeeds).
+#   - On y uniform in {0,1}^{2n}:  the image of G has size <= 2^n out of
+#     2^{2n} total strings, so Pr[y in Image(G)] <= 2^{-n}, and therefore
+#     Pr[D = 1] <= 2^{-n}.
+#
+# Distinguishing advantage:  |Pr[D(G(s)) = 1] - Pr[D(U_{2n}) = 1]| >= eps - 2^{-n}.
+#
+# That advantage is non-negligible whenever eps is, contradicting the
+# pseudorandomness of G. Therefore no efficient inverter for f can exist;
+# f is one-way. See _demo() section (5) for an empirical brute-force
+# inversion attempt that fails as predicted by this bound.
 
 def owf_from_prg(prg: Callable[[bytes], bytes], x: bytes) -> bytes:
     """Build an OWF from a length-doubling PRG by literally calling it."""
@@ -385,10 +407,23 @@ def _demo() -> None:
     print(f"runs    p-value : {p_runs:.4f}  {'OK' if p_runs > 0.01 else 'WEAK'}")
     print(f"serial  p-values: {p_ser1:.4f}, {p_ser2:.4f}")
 
-    print("\n--- (5) Backward reduction: OWF from PRG ---")
+    print("\n--- (5) Backward reduction: f(s) = G(s) is a OWF ---")
     seed_small = os.urandom(16)
-    owf_out = owf_from_prg(G, seed_small)
-    print(f"owf_from_prg(G, 16 bytes) -> {len(owf_out)} bytes")
+    target = owf_from_prg(G, seed_small)
+    print(f"|seed| = 16 bytes  ->  |f(seed)| = {len(target)} bytes")
+
+    # Empirical demonstration that random inversion fails.
+    # Search space for 16-byte seeds is 2^128; with the budget below the
+    # success probability is ~ attempts / 2^128, i.e. effectively zero.
+    attempts = 50_000
+    found = False
+    for _ in range(attempts):
+        if G(os.urandom(16)) == target:
+            found = True
+            break
+    print(f"Brute-force inversion: tried {attempts} random 16-byte preimages")
+    print(f"  found preimage?  {found}   "
+          f"(expected False; success prob ~ {attempts}/2^128 ≈ {attempts / (2**128):.2e})")
 
 
 class TestPA1(unittest.TestCase):
