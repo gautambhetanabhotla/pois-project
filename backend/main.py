@@ -14,10 +14,7 @@ _CORE = Path(__file__).resolve().parent / "core"
 if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
-import pa1  # noqa: E402
-import pa2  # noqa: E402
-import pa3  # noqa: E402
-
+from core import pa1, pa2, pa3  # noqa: E402
 
 app = FastAPI(title="PoIS")
 
@@ -46,7 +43,16 @@ async def pa20(circuit: str, input0: int, input1: int):
         from core.pa20 import millionaires_problem_circuit
         result = Secure_Eval(millionaires_problem_circuit(8), int_to_bits(input0, 16), int_to_bits(input1, 16))
         return {"result": result[0]}
-    elif circuit == ""
+    elif circuit == "equality":
+        from core.pa20 import equality_test_circuit
+        result = Secure_Eval(equality_test_circuit(16), int_to_bits(input0, 16), int_to_bits(input1, 16))
+        return {"result": result[0]}
+    elif circuit == "addition":
+        from core.pa20 import bit_addition_circuit
+        result = Secure_Eval(bit_addition_circuit(16), int_to_bits(input0, 16), int_to_bits(input1, 16))
+        return {"result": int("".join(str(b) for b in result), 2)}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid circuit name")
 
 def _hex_to_bytes(h: str) -> bytes:
     h = h.strip().replace(" ", "")
