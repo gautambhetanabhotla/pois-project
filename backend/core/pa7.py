@@ -59,8 +59,28 @@ def dummy_compress(state: bytes, block: bytes) -> bytes:
             xored[i] ^= block[i]
     return bytes(xored)
 
+
 # -----------------------------------------------------------------------------
-# PHASE 4: Correctness Tests
+# PHASE 3b: Convenience wrappers for use from main.py (PA5 length-extension demo)
+# -----------------------------------------------------------------------------
+BLOCK_SIZE = 16   # Our toy MD uses 16-byte blocks to match the PRP block size
+_IV = b"\x00" * 8  # 8-byte zero IV
+
+def md_hash(data: bytes) -> bytes:
+    """Hash arbitrary-length data with the toy MD transform.
+    Uses dummy_compress with 16-byte blocks and an 8-byte state (zero IV).
+    Returns the 8-byte chaining value."""
+    return merkle_damgard(data, _IV, BLOCK_SIZE, dummy_compress)
+
+def md_hash_from_iv(iv: bytes, data: bytes) -> bytes:
+    """Hash data starting from a given 8-byte IV.
+    This is what an attacker does in a length-extension attack: they set the IV
+    to the intercepted tag and hash only the suffix — producing a valid tag for
+    the extended message without knowing the key."""
+    return merkle_damgard(data, iv, BLOCK_SIZE, dummy_compress)
+
+
+
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':
     print("=== PA#7 Merkle-Damgård Transform ===")
