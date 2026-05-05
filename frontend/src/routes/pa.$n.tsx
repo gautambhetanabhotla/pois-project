@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, ArrowLeftCircle } from "lucide-react";
 import { getPA, PA_LIST, colorMap } from "@/lib/pa-data";
-import { PA_CONTENT } from "@/components/pa-demos";
+import { PA_CONTENT } from "@/lib/pa-content";
 
 export const Route = createFileRoute("/pa/$n")({
   loader: ({ params }) => {
