@@ -231,9 +231,7 @@ export function PA9() {
                 </div>
                 
                 <p className="mt-4 text-[10px] text-muted-foreground font-mono leading-relaxed italic">
-                  Observation: For <MB inline>{`n = ${nBits}`}</MB>, the expected number of hashes is <MB inline>{`2^{${nBits}/2} \\approx ${Math.round(birthday)}`}</MB>. 
-                  This collision took <span className="text-foreground font-bold">{result.evaluations}</span> trials, 
-                  aligning with the birthday paradox prediction.
+                  Observation: For <MB>{`n = ${nBits}`}</MB>, the expected number of hashes is <MB>{`2^{${nBits}/2} \\approx ${Math.round(birthday)}`}</MB>. 
                 </p>
               </div>
             )}

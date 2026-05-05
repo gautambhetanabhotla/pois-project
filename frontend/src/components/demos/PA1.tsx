@@ -79,7 +79,14 @@ export function PA1() {
       <div className="grid sm:grid-cols-2 gap-4">
         <div>
           <Label>Seed (hex) — backend stretches any length</Label>
-          <Input value={seed} onChange={(e) => setSeed(e.target.value)} className="font-mono" />
+          <Input 
+            value={seed} 
+            onChange={(e) => {
+              const val = e.target.value.replace(/[^0-9a-fA-F]/g, '');
+              setSeed(val);
+            }} 
+            className="font-mono" 
+          />
         </div>
         <div>
           <Label>
@@ -91,7 +98,7 @@ export function PA1() {
       </div>
       {error && (
         <div className="rounded-md border border-gb-red/40 bg-gb-red/10 p-2 text-xs text-gb-red font-mono">
-          backend offline or unreachable: {error} — start uvicorn on :8000
+          {error.includes("Failed to fetch") ? "Backend offline or unreachable — start uvicorn on :8000" : `Error: ${error}`}
         </div>
       )}
       <div>

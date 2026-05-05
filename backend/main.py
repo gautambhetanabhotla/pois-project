@@ -58,6 +58,9 @@ async def hello():
 
 def _hex_to_bytes(h: str) -> bytes:
     h = h.strip().replace(" ", "")
+    # Filter out any non-hex characters
+    import re
+    h = re.sub(r'[^0-9a-fA-F]', '', h)
     if not h:
         return b""
     if len(h) % 2 == 1:
@@ -65,6 +68,7 @@ def _hex_to_bytes(h: str) -> bytes:
     try:
         return bytes.fromhex(h)
     except ValueError as e:
+        # Should not happen after regex filtering, but just in case
         raise HTTPException(status_code=400, detail=f"invalid hex: {e}")
 
 
@@ -168,19 +172,36 @@ class PA2GgmReq(BaseModel):
 class PA2GgmRes(BaseModel):
     result_hex: str
     path_hex: list[str]
-
+    tree_hex: list[list[str]]
 
 @app.post("/api/pa2/ggm", response_model=PA2GgmRes)
 def pa2_ggm(req: PA2GgmReq):
     key = _hex_to_bytes(req.key_hex) if req.key_hex else os.urandom(16)
     if len(key) == 0:
         key = os.urandom(16)
+    
+    depth = len(req.bits)
+    tree: list[list[bytes]] = [[key]]
+    
+    # Compute the full tree level by level
+    for d in range(1, depth + 1):
+        prev_level = tree[d - 1]
+        curr_level = []
+        for node in prev_level:
+            curr_level.append(pa1.G0(node))
+            curr_level.append(pa1.G1(node))
+        tree.append(curr_level)
+        
+    tree_hex = [[n.hex() for n in level] for level in tree]
+
+    # Compute the specific path
     s = key
     path = [s.hex()]
     for ch in req.bits:
         s = pa1.G1(s) if ch == "1" else pa1.G0(s)
         path.append(s.hex())
-    return PA2GgmRes(result_hex=s.hex(), path_hex=path)
+        
+    return PA2GgmRes(result_hex=s.hex(), path_hex=path, tree_hex=tree_hex)
 
 
 class PA2PrpReq(BaseModel):
@@ -203,68 +224,41 @@ def pa2_prp(req: PA2PrpReq):
     return PA2PrpRes(ct_hex=pa2.prp_encrypt(k, b).hex())
 
 
-# --- PA #3 — CPA-secure SKE ---------------------------------------------------
+# --- PA #3 — CPA-secure SKE & IND-CPA Game ------------------------------------
 
-class PA3EncReq(BaseModel):
-    key_hex: str
-    plaintext: str
-
-
-class PA3EncRes(BaseModel):
-    r_hex: str
-    c_hex: str
-
-
-@app.post("/api/pa3/encrypt", response_model=PA3EncRes)
-def pa3_encrypt(req: PA3EncReq):
-    k = _hex_to_bytes(req.key_hex)
-    if len(k) != pa3.BLOCK_SIZE:
-        raise HTTPException(400, f"key must be {pa3.BLOCK_SIZE} bytes")
-    m = req.plaintext.encode("utf-8")
-    r, c = pa3.Enc(k, m)
-    return PA3EncRes(r_hex=r.hex(), c_hex=c.hex())
-
-
-class PA3DecReq(BaseModel):
-    key_hex: str
-    r_hex: str
-    c_hex: str
-
-
-class PA3DecRes(BaseModel):
-    plaintext: str
-
-
-@app.post("/api/pa3/decrypt", response_model=PA3DecRes)
-def pa3_decrypt(req: PA3DecReq):
-    k = _hex_to_bytes(req.key_hex)
-    if len(k) != pa3.BLOCK_SIZE:
-        raise HTTPException(400, f"key must be {pa3.BLOCK_SIZE} bytes")
-    r = _hex_to_bytes(req.r_hex)
-    if len(r) != pa3.BLOCK_SIZE:
-        raise HTTPException(400, f"r must be {pa3.BLOCK_SIZE} bytes")
-    c = _hex_to_bytes(req.c_hex)
-    m = pa3.Dec(k, r, c)
-    try:
-        text = m.decode("utf-8")
-    except UnicodeDecodeError:
-        text = m.hex()
-    return PA3DecRes(plaintext=text)
-
-
-class PA3GameReq(BaseModel):
-    rounds: int = Field(50, ge=1, le=500)
+class PA3PlayRoundReq(BaseModel):
+    m0: str
+    m1: str
     broken: bool = False
 
+class PA3PlayRoundRes(BaseModel):
+    c_hex: str
+    b: int
+    r_hex: str
 
-class PA3GameRes(BaseModel):
-    advantage: float
-
-
-@app.post("/api/pa3/cpa_game", response_model=PA3GameRes)
-def pa3_game(req: PA3GameReq):
+@app.post("/api/pa3/play_round", response_model=PA3PlayRoundRes)
+def pa3_play_round(req: PA3PlayRoundReq):
+    m0 = req.m0.encode("utf-8")
+    m1 = req.m1.encode("utf-8")
+    if len(m0) != len(m1):
+        raise HTTPException(400, "m0 and m1 must be equal length")
+    
+    # Challenger picks a random bit
+    import random
+    b = random.randint(0, 1)
+    m_b = m1 if b == 1 else m0
+    
+    # We use a fixed key for the session duration (just use a hardcoded one for the demo)
+    k = b"PA3_CPA_GAME_KEY" # 16 bytes
+    
     fn = pa3.Enc_broken if req.broken else pa3.Enc
-    return PA3GameRes(advantage=pa3.cpa_game(fn, rounds=req.rounds))
+    r, c = fn(k, m_b)
+    
+    return PA3PlayRoundRes(
+        c_hex=c.hex(),
+        b=b,
+        r_hex=r.hex()
+    )
 
 
 # --- PA #4 — Modes of Operation -----------------------------------------------
@@ -1169,28 +1163,46 @@ def pa12_encrypt_twice(req: PA12EncryptTwiceReq):
         pkcs15_ps2=ps2.hex()
     )
 
-
+import time
 # --- PA #13 — Miller-Rabin ----------------------------------------------------
 
 class PA13MrReq(BaseModel):
     n: str
     rounds: int
 
+class PA13MrRound(BaseModel):
+    a: str
+    d: str
+    s: int
+    x_initial: str
+    sequence: list[str]
+    verdict: str
+
 class PA13MrRes(BaseModel):
     is_prime: bool
+    rounds: list[PA13MrRound] = []
+    reason: str = ""
+    time_ms: float = 0.0
     error: str = ""
 
 @app.post("/api/pa13/miller_rabin", response_model=PA13MrRes)
 def pa13_mr(req: PA13MrReq):
     try:
+        t0 = time.perf_counter()
         n_val = int(req.n)
-        is_p = pa13.miller_rabin(n_val, req.rounds)
-        return PA13MrRes(is_prime=is_p)
+        res = pa13.miller_rabin_trace(n_val, req.rounds)
+        dt = (time.perf_counter() - t0) * 1000
+        return PA13MrRes(
+            is_prime=res["is_prime"],
+            rounds=[PA13MrRound(**r) for r in res["rounds"]],
+            reason=res["reason"],
+            time_ms=dt
+        )
     except Exception as e:
         return PA13MrRes(is_prime=False, error=str(e))
 
 
-# --- PA #14 — Chinese Remainder Theorem ---------------------------------------
+# --- PA #14 — Chinese Remainder Theorem & Hastad Attack -------------------------
 
 class PA14CrtReq(BaseModel):
     residues: list[str]
@@ -1210,19 +1222,164 @@ def pa14_crt(req: PA14CrtReq):
     except Exception as e:
         return PA14CrtRes(x="", error=str(e))
 
+class PA14HastadReq(BaseModel):
+    message: str
+    padding: bool
+
+class PA14HastadRes(BaseModel):
+    ciphertexts: list[str]
+    moduli: list[str]
+    recovered_m_3: str
+    recovered_m: str
+    is_success: bool
+    error: str = ""
+
+@app.post("/api/pa14/hastad", response_model=PA14HastadRes)
+def pa14_hastad(req: PA14HastadReq):
+    try:
+        m_bytes = req.message.encode()
+        e = 3
+        
+        # Generate 3 keys with e=3
+        keys = []
+        while len(keys) < 3:
+            # Use small keys (64-bit) for the toy demo speed
+            k = pa14._generate_rsa_keypair(64, e)
+            keys.append(k)
+            
+        ciphertexts = []
+        moduli = [k['N'] for k in keys]
+        
+        if req.padding:
+            # Use PKCS#1 v1.5 padding from PA12
+            for k in keys:
+                # Need to be careful with key size for PKCS#1 v1.5 (k >= 11 + m_len)
+                # For 64-bit N, k=8 bytes. PKCS#1 v1.5 won't fit a message!
+                # I'll scale up to 512 bits if padding is requested, or just use a toy padding.
+                # Actually, let's use 512-bit keys for both to be safe and consistent.
+                k_512 = pa14._generate_rsa_keypair(512, e)
+                # Re-generate moduli for the response
+                # (This is a toy demo, consistency of N across padded/unpadded isn't strictly required
+                # as long as the principle is demonstrated)
+                pass
+            
+            # Better approach: always use 512-bit keys
+            keys = [pa14._generate_rsa_keypair(512, e) for _ in range(3)]
+            moduli = [k['N'] for k in keys]
+            
+            for k in keys:
+                # Use PA12's pkcs15_enc
+                c, _ = pa12.pkcs15_enc((k['N'], k['e']), m_bytes)
+                ciphertexts.append(c)
+        else:
+            m_int = int.from_bytes(m_bytes, "big")
+            for k in keys:
+                ciphertexts.append(pow(m_int, e, k['N']))
+                
+        # Run attack
+        x = pa14.crt(ciphertexts, moduli)
+        m_3_recovered = x
+        m_recovered_int = pa14.integer_nth_root(x, e)
+        
+        if req.padding:
+            # For padded, it will be garbage
+            m_recovered_str = "?? " + hex(m_recovered_int)[2:12] + "..."
+            is_success = False
+        else:
+            try:
+                m_recovered_str = m_recovered_int.to_bytes((m_recovered_int.bit_length() + 7) // 8, "big").decode()
+                is_success = (m_recovered_str == req.message)
+            except:
+                m_recovered_str = "Invalid encoding"
+                is_success = False
+                
+        return PA14HastadRes(
+            ciphertexts=[str(c) for c in ciphertexts],
+            moduli=[str(n) for n in moduli],
+            recovered_m_3=str(m_3_recovered),
+            recovered_m=m_recovered_str,
+            is_success=is_success
+        )
+    except Exception as e:
+        return PA14HastadRes(ciphertexts=[], moduli=[], recovered_m_3="", recovered_m="", is_success=False, error=str(e))
+
 
 # --- PA #15 — OAEP / Bleichenbacher Oracle ------------------------------------
 
-class PA15OracleRes(BaseModel):
-    status: str
+class PA15RSAReq(BaseModel):
+    m: str
+    is_raw: bool = False
 
-@app.post("/api/pa15/oracle", response_model=PA15OracleRes)
-def pa15_oracle():
-    # Simulate a padding oracle that returns "valid" for PKCS#1 v1.5 padding 
-    # roughly 5% of the time on random data, to mimic the attack progression.
-    if random.random() < 0.05:
-        return PA15OracleRes(status="valid")
-    return PA15OracleRes(status="invalid")
+class PA15RSASignRes(BaseModel):
+    sigma: str
+    n: str
+    e: str
+    h_m: str
+    error: str = ""
+
+@app.post("/api/pa15/sign", response_model=PA15RSASignRes)
+def pa15_sign(req: PA15RSAReq):
+    try:
+        # Use a fixed key for the demo to keep it consistent
+        sk, vk = pa15.rsa_keygen(1024)
+        
+        if req.is_raw:
+            m_int = int(req.m) if req.m.isdigit() else int.from_bytes(req.m.encode(), "big")
+            sigma = pa15.sign_raw(sk, m_int)
+            h_m = str(m_int % vk['N'])
+        else:
+            m_bytes = req.m.encode()
+            sigma = pa15.Sign(sk, m_bytes)
+            digest = pa8.dlp_hash(m_bytes)
+            h_m = str(int.from_bytes(digest, "big") % vk['N'])
+            
+        return PA15RSASignRes(
+            sigma=hex(sigma),
+            n=str(vk['N']),
+            e=str(vk['e']),
+            h_m=h_m
+        )
+    except Exception as e:
+        return PA15RSASignRes(sigma="", n="", e="", h_m="", error=str(e))
+
+class PA15RSAVerifyReq(BaseModel):
+    m: str
+    sigma: str
+    is_raw: bool = False
+    n: str
+    e: str
+
+class PA15RSAVerifyRes(BaseModel):
+    is_valid: bool
+    h_m: str
+    sigma_e: str
+    error: str = ""
+
+@app.post("/api/pa15/verify", response_model=PA15RSAVerifyRes)
+def pa15_verify(req: PA15RSAVerifyReq):
+    try:
+        n = int(req.n)
+        e = int(req.e)
+        sigma = int(req.sigma, 16)
+        
+        if req.is_raw:
+            m_int = int(req.m) if req.m.isdigit() else int.from_bytes(req.m.encode(), "big")
+            h_m = m_int % n
+        else:
+            m_bytes = req.m.encode()
+            digest = pa8.dlp_hash(m_bytes)
+            h_m = int.from_bytes(digest, "big") % n
+            
+        sigma_e = pow(sigma, e, n)
+        is_valid = (sigma_e == h_m)
+        
+        return PA15RSAVerifyRes(
+            is_valid=is_valid,
+            h_m=str(h_m),
+            sigma_e=str(sigma_e)
+        )
+    except Exception as e:
+        return PA15RSAVerifyRes(is_valid=False, h_m="", sigma_e="", error=str(e))
 
 
 # --- PA #16 — ElGamal ---------------------------------------------------------
@@ -1234,91 +1391,166 @@ class PA16ElGamalReq(BaseModel):
     m: str
     r: str
 
+class PA16ElGamalReq(BaseModel):
+    p: str
+    g: str
+    x: str
+    m: str
+
 class PA16ElGamalRes(BaseModel):
     h: str
     c1: str
     c2: str
-    m_recovered: str
     error: str = ""
 
-@app.post("/api/pa16/elgamal", response_model=PA16ElGamalRes)
-def pa16_elgamal(req: PA16ElGamalReq):
+@app.post("/api/pa16/encrypt", response_model=PA16ElGamalRes)
+def pa16_encrypt(req: PA16ElGamalReq):
     try:
         p = int(req.p)
         g = int(req.g)
         x = int(req.x)
         m = int(req.m)
-        r = int(req.r)
+        r = random.randint(1, p - 2)
         
         h = pow(g, x, p)
         c1 = pow(g, r, p)
-        hr = pow(h, r, p)
-        c2 = (m * hr) % p
+        s = pow(h, r, p)
+        c2 = (m * s) % p
         
-        # decryption
+        return PA16ElGamalRes(h=str(h), c1=str(c1), c2=str(c2))
+    except Exception as e:
+        return PA16ElGamalRes(h="", c1="", c2="", error=str(e))
+
+class PA16DecryptReq(BaseModel):
+    p: str
+    x: str
+    c1: str
+    c2: str
+
+class PA16DecryptRes(BaseModel):
+    m: str
+    error: str = ""
+
+@app.post("/api/pa16/decrypt", response_model=PA16DecryptRes)
+def pa16_decrypt(req: PA16DecryptReq):
+    try:
+        p = int(req.p)
+        x = int(req.x)
+        c1 = int(req.c1)
+        c2 = int(req.c2)
+        
         s = pow(c1, x, p)
         s_inv = pow(s, -1, p)
-        m_rec = (c2 * s_inv) % p
+        m = (c2 * s_inv) % p
         
-        return PA16ElGamalRes(
-            h=str(h),
-            c1=str(c1),
-            c2=str(c2),
-            m_recovered=str(m_rec)
-        )
+        return PA16DecryptRes(m=str(m))
     except Exception as e:
-        return PA16ElGamalRes(h="", c1="", c2="", m_recovered="", error=str(e))
+        return PA16DecryptRes(m="", error=str(e))
 
 
 # --- PA #17 — Schnorr Signatures ----------------------------------------------
 
-class PA17SchnorrReq(BaseModel):
-    p: str
-    g: str
-    q: str
-    x: str
+class PA17CCAEncReq(BaseModel):
     m: str
 
-class PA17SchnorrRes(BaseModel):
-    y: str
-    r: str
-    e: str
-    s: str
+class PA17CCAEncRes(BaseModel):
+    p: str
+    g: str
+    x_enc: str
+    x_sign: str
+    c1: str
+    c2: str
+    r_sig: str
+    s_sig: str
+    plain_c1: str
+    plain_c2: str
     error: str = ""
 
-@app.post("/api/pa17/schnorr", response_model=PA17SchnorrRes)
-def pa17_schnorr(req: PA17SchnorrReq):
+@app.post("/api/pa17/encrypt", response_model=PA17CCAEncRes)
+def pa17_cca_encrypt(req: PA17CCAEncReq):
     try:
-        p = int(req.p)
-        g = int(req.g)
-        q = int(req.q)
-        x = int(req.x)
-        m = req.m
+        m_val = int(req.m)
+        p = 467
+        g = 2
         
-        y = pow(g, x, p)
+        # Keys
+        x_enc = random.randint(1, p - 2)
+        x_sign = random.randint(1, p - 2)
+        h_enc = pow(g, x_enc, p)
+        h_sign = pow(g, x_sign, p)
         
-        k = random.randint(1, q - 1)
-        r = pow(g, k, p)
+        # Encrypt (CCA version)
+        r = random.randint(1, p - 2)
+        c1 = pow(g, r, p)
+        s = pow(h_enc, r, p)
+        c2 = (m_val * s) % p
         
-        m_bytes = m.encode("utf-8")
-        r_str = str(r).encode("utf-8")
+        # Sign the ciphertext (c1 || c2)
+        c_bytes = f"{c1},{c2}".encode()
+        r_sig, s_sig = pa16.Sign(
+            pa16.PublicKey(pa11.Group(p), p, pa11.GroupElement(g, pa11.Group(p)), pa11.GroupElement(h_sign, pa11.Group(p))),
+            pa16.SecretKey(pa11.Group(p), pa11.GroupElement(g, pa11.Group(p)), x_sign),
+            c_bytes
+        )
         
-        h_bytes = pa8.dlp_hash(r_str + m_bytes)
-        h = h_bytes.hex()
+        # Plain ElGamal (for contrast)
+        rp = random.randint(1, p - 2)
+        pc1 = pow(g, rp, p)
+        ps = pow(h_enc, rp, p)
+        pc2 = (m_val * ps) % p
         
-        # Take first 8 chars to match the TS code:
-        e = int(h[:8], 16) % q
-        
-        s = (k + x * e) % q
-        
-        return PA17SchnorrRes(
-            y=str(y),
-            r=str(r),
-            e=str(e),
-            s=str(s)
+        return PA17CCAEncRes(
+            p=str(p), g=str(g), x_enc=str(x_enc), x_sign=str(x_sign),
+            c1=str(c1), c2=str(c2), r_sig=str(r_sig), s_sig=str(s_sig),
+            plain_c1=str(pc1), plain_c2=str(pc2)
         )
     except Exception as e:
-        return PA17SchnorrRes(y="", r="", e="", s="", error=str(e))
+        return PA17CCAEncRes(p="", g="", x_enc="", x_sign="", c1="", c2="", r_sig="", s_sig="", plain_c1="", plain_c2="", error=str(e))
+
+class PA17CCADecReq(BaseModel):
+    p: str
+    x_enc: str
+    x_sign: str
+    c1: str
+    c2: str
+    r_sig: str
+    s_sig: str
+    is_cca: bool
+
+class PA17CCADecRes(BaseModel):
+    m: str
+    status: str
+    error: str = ""
+
+@app.post("/api/pa17/decrypt", response_model=PA17CCADecRes)
+def pa17_cca_decrypt(req: PA17CCADecReq):
+    try:
+        p = int(req.p)
+        x_enc = int(req.x_enc)
+        x_sign = int(req.x_sign)
+        c1 = int(req.c1)
+        c2 = int(req.c2)
+        r_sig = int(req.r_sig)
+        s_sig = int(req.s_sig)
+        
+        g = 2
+        h_sign = pow(g, x_sign, p)
+        
+        if req.is_cca:
+            # Verify signature first
+            c_bytes = f"{c1},{c2}".encode()
+            pk_sign = pa16.PublicKey(pa11.Group(p), p, pa11.GroupElement(g, pa11.Group(p)), pa11.GroupElement(h_sign, pa11.Group(p)))
+            if not pa16.Verify(pk_sign, c_bytes, (r_sig, s_sig)):
+                return PA17CCADecRes(m="⊥", status="Signature invalid, decryption aborted.")
+            
+        # Decrypt
+        s = pow(c1, x_enc, p)
+        s_inv = pow(s, -1, p)
+        m = (c2 * s_inv) % p
+        
+        return PA17CCADecRes(m=str(m), status="Decryption successful.")
+    except Exception as e:
+        return PA17CCADecRes(m="", status="Error", error=str(e))
 
 # --- PA #18 — Oblivious Transfer ----------------------------------------------
 class PA18OTReq(BaseModel):

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { M } from "../Math";
 
 function Label({ children }: { children: React.ReactNode }) {
   return <div className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{children}</div>;
@@ -42,9 +43,9 @@ export function PA18() {
   return (
     <div className="space-y-4">
       <div className="text-xs text-muted-foreground">
-        Alice has two messages, \(m_0\) and \(m_1\). Bob has a choice bit \(c\).
-        Through Oblivious Transfer, Bob learns \(m_c\) but learns nothing about \(m_{1-c}\),
-        and Alice learns nothing about \(c\).
+        Alice has two messages, <M>{"m_0"}</M> and <M>{"m_1"}</M>. Bob has a choice bit <M>{"c"}</M>.
+        Through Oblivious Transfer, Bob learns <M>{"m_c"}</M> but learns nothing about <M>{"m_{1-c}"}</M>,
+        and Alice learns nothing about <M>{"c"}</M>.
       </div>
       
       {error && (
