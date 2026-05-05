@@ -1166,7 +1166,7 @@ def pa13_mr(req: PA13MrReq):
         return PA13MrRes(is_prime=False, error=str(e))
 
 
-# --- PA #14 — Chinese Remainder Theorem ---------------------------------------
+# --- PA #14 — Chinese Remainder Theorem & Hastad Attack -------------------------
 
 class PA14CrtReq(BaseModel):
     residues: list[str]
@@ -1185,6 +1185,87 @@ def pa14_crt(req: PA14CrtReq):
         return PA14CrtRes(x=str(x_val))
     except Exception as e:
         return PA14CrtRes(x="", error=str(e))
+
+class PA14HastadReq(BaseModel):
+    message: str
+    padding: bool
+
+class PA14HastadRes(BaseModel):
+    ciphertexts: list[str]
+    moduli: list[str]
+    recovered_m_3: str
+    recovered_m: str
+    is_success: bool
+    error: str = ""
+
+@app.post("/api/pa14/hastad", response_model=PA14HastadRes)
+def pa14_hastad(req: PA14HastadReq):
+    try:
+        m_bytes = req.message.encode()
+        e = 3
+        
+        # Generate 3 keys with e=3
+        keys = []
+        while len(keys) < 3:
+            # Use small keys (64-bit) for the toy demo speed
+            k = pa14._generate_rsa_keypair(64, e)
+            keys.append(k)
+            
+        ciphertexts = []
+        moduli = [k['N'] for k in keys]
+        
+        if req.padding:
+            # Use PKCS#1 v1.5 padding from PA12
+            for k in keys:
+                # Need to be careful with key size for PKCS#1 v1.5 (k >= 11 + m_len)
+                # For 64-bit N, k=8 bytes. PKCS#1 v1.5 won't fit a message!
+                # I'll scale up to 512 bits if padding is requested, or just use a toy padding.
+                # Actually, let's use 512-bit keys for both to be safe and consistent.
+                k_512 = pa14._generate_rsa_keypair(512, e)
+                # Re-generate moduli for the response
+                # (This is a toy demo, consistency of N across padded/unpadded isn't strictly required
+                # as long as the principle is demonstrated)
+                pass
+            
+            # Better approach: always use 512-bit keys
+            keys = [pa14._generate_rsa_keypair(512, e) for _ in range(3)]
+            moduli = [k['N'] for k in keys]
+            
+            for k in keys:
+                # Use PA12's pkcs15_enc
+                c, _ = pa12.pkcs15_enc((k['N'], k['e']), m_bytes)
+                ciphertexts.append(c)
+        else:
+            m_int = int.from_bytes(m_bytes, "big")
+            for k in keys:
+                ciphertexts.append(pow(m_int, e, k['N']))
+                
+        # Run attack
+        x = pa14.crt(ciphertexts, moduli)
+        m_3_recovered = x
+        m_recovered_int = pa14.integer_nth_root(x, e)
+        
+        if req.padding:
+            # For padded, it will be garbage
+            m_recovered_str = "?? " + hex(m_recovered_int)[2:12] + "..."
+            is_success = False
+        else:
+            try:
+                m_recovered_str = m_recovered_int.to_bytes((m_recovered_int.bit_length() + 7) // 8, "big").decode()
+                is_success = (m_recovered_str == req.message)
+            except:
+                m_recovered_str = "Invalid encoding"
+                is_success = False
+                
+        return PA14HastadRes(
+            ciphertexts=[str(c) for c in ciphertexts],
+            moduli=[str(n) for n in moduli],
+            recovered_m_3=str(m_3_recovered),
+            recovered_m=m_recovered_str,
+            is_success=is_success
+        )
+    except Exception as e:
+        return PA14HastadRes(ciphertexts=[], moduli=[], recovered_m_3="", recovered_m="", is_success=False, error=str(e))
 
 
 # --- PA #15 — OAEP / Bleichenbacher Oracle ------------------------------------
