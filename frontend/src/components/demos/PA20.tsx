@@ -42,7 +42,7 @@ export function PA20() {
   return (
     <div className="space-y-4">
       <div className="text-xs text-muted-foreground">
-        Yao's Millionaires' Problem: securely compute whether \(x > y\) using an 8-bit garbled circuit.
+        Yao's Millionaires' Problem: securely compute whether \(x \geq y\) using an 8-bit garbled circuit.
         Input values must be between 0 and 255.
       </div>
       
