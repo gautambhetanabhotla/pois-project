@@ -22,18 +22,6 @@ import pa13
 # =============================================================================
 
 def extended_gcd(a: int, b: int) -> tuple:
-    """
-    Extended Euclidean Algorithm.
-    
-    Finds integers x, y such that a*x + b*y = gcd(a, b).
-    
-    Args:
-        a: First integer
-        b: Second integer
-        
-    Returns:
-        (gcd, x, y) where a*x + b*y = gcd
-    """
     if b == 0:
         return (a, 1, 0)
     
@@ -45,22 +33,6 @@ def extended_gcd(a: int, b: int) -> tuple:
 
 
 def mod_inverse(a: int, m: int) -> int:
-    """
-    Compute the modular multiplicative inverse of a modulo m.
-    
-    Finds x such that a*x ≡ 1 (mod m).
-    Uses extended Euclidean algorithm.
-    
-    Args:
-        a: The number to invert
-        m: The modulus
-        
-    Returns:
-        x such that a*x ≡ 1 (mod m)
-        
-    Raises:
-        ValueError: If gcd(a, m) != 1 (inverse doesn't exist)
-    """
     gcd, x, _ = extended_gcd(a, m)
     
     if gcd != 1:
@@ -76,27 +48,16 @@ def mod_inverse(a: int, m: int) -> int:
 def keygen(bits: int) -> tuple:
     """
     Generate RSA public and private key pairs.
-    
-    Process:
-      1. Generate two large random primes p and q
-      2. Compute n = p * q (the RSA modulus)
-      3. Compute φ(n) = (p-1) * (q-1)
-      4. Choose public exponent e = 65537 (standard)
-      5. Compute private exponent d = e^(-1) mod φ(n)
-      6. Return public key (n, e) and private key (n, d)
-    
-    Args:
-        bits: Bit length of each prime (total key size ~ 2*bits)
-        
-    Returns:
-        ((n, e), (n, d)) where:
-        - (n, e) is the public key
-        - (n, d) is the private key
+    Returns: (pk, sk)
+    pk = (n, e)
+    sk = (n, d, p, q, dp, dq, q_inv)
     """
+<<<<<<< HEAD
     p = pa13.gen_prime(bits)
     q = pa13.gen_prime(bits)
     
-    # Ensure p != q
+    p = pa13.gen_prime(prime_bits)
+    q = pa13.gen_prime(prime_bits)
     while p == q:
         q = pa13.gen_prime(bits)
     

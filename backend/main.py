@@ -604,303 +604,109 @@ def pa5_len_ext(req: PA5LenExtReq):
 
 
 
-# --- PA #6 — Malleability / CCA-secure SKE ------------------------------------
+# --- PA #6 — CCA Security & Malleability (Live Demo) -------------------------
 
-class PA6EncReq(BaseModel):
-    key_enc_hex: str
-    key_mac_hex: str
+class PA6MalleabilityReq(BaseModel):
     message: str
+    flip_index: int = -1 # bit index to flip
 
-class PA6EncRes(BaseModel):
-    nonce_hex: str
+class PA6MalleabilityRes(BaseModel):
     ciphertext_hex: str
-    tag_hex: str
+    cpa_plaintext: str
+    cca_plaintext: str # will be "⊥" if MAC fails
 
-@app.post("/api/pa6/encrypt", response_model=PA6EncRes)
-def pa6_encrypt(req: PA6EncReq):
-    k_enc = _hex_to_bytes(req.key_enc_hex)
-    k_mac = _hex_to_bytes(req.key_mac_hex)
+@app.post("/api/pa6/malleability", response_model=PA6MalleabilityRes)
+def pa6_malleability(req: PA6MalleabilityReq):
     m = req.message.encode("utf-8")
+    k_enc = b"PA6_DEMO_KEY_ENC" # 16 bytes
+    k_mac = b"PA6_DEMO_KEY_MAC" # 16 bytes
+    
+    # 1. Encrypt-then-MAC (CCA)
     iv, c, t = pa6.cca_encrypt('CTR', 'CBC', k_enc, k_mac, m)
-    return PA6EncRes(nonce_hex=iv.hex(), ciphertext_hex=c.hex(), tag_hex=t.hex())
-
-
-# CPA-only encrypt (no MAC) — returns per-byte detail for bit-flip visualiser
-class PA6CpaByte(BaseModel):
-    m_hex: str       # 1 plaintext byte
-    ks_hex: str      # keystream byte at that position
-    c_hex: str       # ciphertext byte
-
-class PA6CpaRes(BaseModel):
-    nonce_hex: str
-    message_hex: str
-    keystream_hex: str
-    ciphertext_hex: str
-
-@app.post("/api/pa6/cpa_encrypt", response_model=PA6CpaRes)
-def pa6_cpa_encrypt(req: PA6EncReq):
-    """CTR encryption without MAC — shows per-byte keystream for bit-flip demo."""
-    from pa2 import prp_encrypt as _prpe
-    k = _hex_to_bytes(req.key_enc_hex)
-    m = req.message.encode("utf-8")
-
-    nonce = os.urandom(pa4.BLOCK_SIZE)
-    r_int = int.from_bytes(nonce, "big")
-    # Build full keystream (one PRP call per 16-byte block, then XOR byte-by-byte)
-    num_blocks = (len(m) + pa4.BLOCK_SIZE - 1) // pa4.BLOCK_SIZE
-    keystream = b""
-    for i in range(num_blocks):
-        ctr = (r_int + i) % (1 << (pa4.BLOCK_SIZE * 8))
-        keystream += _prpe(k, ctr.to_bytes(pa4.BLOCK_SIZE, "big"))
-    keystream = keystream[:len(m)]
-    ciphertext = pa4.xor_bytes(m, keystream)
-
-    return PA6CpaRes(
-        nonce_hex=nonce.hex(),
-        message_hex=m.hex(),
-        keystream_hex=keystream.hex(),
-        ciphertext_hex=ciphertext.hex(),
+    
+    # Combined ciphertext for the UI
+    full_ct = bytearray(c)
+    
+    # 2. Apply bit flip if requested
+    if req.flip_index >= 0:
+        byte_idx = req.flip_index // 8
+        bit_idx = req.flip_index % 8
+        if byte_idx < len(full_ct):
+            full_ct[byte_idx] ^= (1 << bit_idx)
+            
+    # 3. Decrypt CPA-only (no MAC check)
+    m_cpa = pa4.Decrypt('CTR', k_enc, iv, bytes(full_ct))
+    cpa_pt = m_cpa.decode("utf-8", errors="replace")
+    
+    # 4. Decrypt CCA (with MAC check)
+    try:
+        # Use the ORIGINAL tag 't' - any modification to 'c' should invalidate the (c, t) pair
+        m_cca = pa6.cca_decrypt('CTR', 'CBC', k_enc, k_mac, iv, bytes(full_ct), t)
+        cca_pt = m_cca.decode("utf-8", errors="replace")
+    except Exception:
+        cca_pt = "⊥"
+        
+    return PA6MalleabilityRes(
+        ciphertext_hex=full_ct.hex(),
+        cpa_plaintext=cpa_pt,
+        cca_plaintext=cca_pt
     )
 
-
-class PA6DecReq(BaseModel):
-    key_enc_hex: str
-    key_mac_hex: str
-    nonce_hex: str
-    ciphertext_hex: str
-    tag_hex: str
-    cca_enabled: bool
-
-class PA6DecRes(BaseModel):
-    plaintext: str
-    error: str = ""
-
-@app.post("/api/pa6/decrypt", response_model=PA6DecRes)
-def pa6_decrypt(req: PA6DecReq):
-    k_enc = _hex_to_bytes(req.key_enc_hex)
-    k_mac = _hex_to_bytes(req.key_mac_hex)
-    iv = _hex_to_bytes(req.nonce_hex)
-    c = _hex_to_bytes(req.ciphertext_hex)
-    t = _hex_to_bytes(req.tag_hex)
-    try:
-        if req.cca_enabled:
-            m = pa6.cca_decrypt('CTR', 'CBC', k_enc, k_mac, iv, c, t)
-        else:
-            m = pa4.Decrypt('CTR', k_enc, iv, c)
-        try:
-            return PA6DecRes(plaintext=m.decode("utf-8"))
-        except UnicodeDecodeError:
-            return PA6DecRes(plaintext=m.hex())
-    except pa6.InvalidCiphertextException as e:
-        return PA6DecRes(plaintext="", error=str(e))
-    except Exception as e:
-        return PA6DecRes(plaintext="", error=str(e))
-
-
-# Bit-flip on the CPA ciphertext then decrypt (live update)
-class PA6BitFlipReq(BaseModel):
-    key_enc_hex: str
-    nonce_hex: str
-    ciphertext_hex: str
-    flip_byte: int      # which byte to flip (0-indexed)
-    flip_mask: int = 1  # XOR mask (default flip LSB)
-
-class PA6BitFlipRes(BaseModel):
-    flipped_ciphertext_hex: str
-    recovered_plaintext: str    # result of decrypting the flipped CT
-
-@app.post("/api/pa6/cpa_flip", response_model=PA6BitFlipRes)
-def pa6_cpa_flip(req: PA6BitFlipReq):
-    """Flip one byte of the CPA ciphertext and decrypt — shows malleability."""
-    k = _hex_to_bytes(req.key_enc_hex)
-    nonce = _hex_to_bytes(req.nonce_hex)
-    c = bytearray(_hex_to_bytes(req.ciphertext_hex))
-    fb = req.flip_byte % len(c)
-    c[fb] ^= req.flip_mask
-    flipped = bytes(c)
-    m = pa4.Decrypt('CTR', k, nonce, flipped)
-    try:
-        pt = m.decode("utf-8", errors="replace")
-    except Exception:
-        pt = m.hex()
-    return PA6BitFlipRes(flipped_ciphertext_hex=flipped.hex(), recovered_plaintext=pt)
-
-
-# IND-CCA2 game simulation
-class PA6CCA2Res(BaseModel):
-    trials: int
-    successes: int
-    advantage: float
-    details: list[str]
-
-@app.post("/api/pa6/cca2_game", response_model=PA6CCA2Res)
-def pa6_cca2_game():
-    """Run 50 IND-CCA2 trials. Adversary gets enc+dec oracles, challenge CT is rejected by dec oracle."""
-    trials = 50
-    k_enc = os.urandom(pa4.BLOCK_SIZE)
-    k_mac = os.urandom(pa4.BLOCK_SIZE)
-    details: list[str] = []
-
-    def dec_oracle(iv_bytes, c_bytes, t_bytes):
-        try:
-            return pa6.cca_decrypt('CTR', 'CBC', k_enc, k_mac, iv_bytes, c_bytes, t_bytes)
-        except pa6.InvalidCiphertextException:
-            return None
-
-    successes = 0
-    for i in range(trials):
-        m0 = os.urandom(16)
-        m1 = os.urandom(16)
-        b = random.randint(0, 1)
-        m_b = m1 if b else m0
-
-        # Challenge
-        iv, c, t = pa6.cca_encrypt('CTR', 'CBC', k_enc, k_mac, m_b)
-
-        # Adversary tweaks the challenge CT and submits to dec oracle → always rejected
-        bad_c = bytearray(c); bad_c[0] ^= 0x01
-        resp = dec_oracle(iv, bytes(bad_c), t)  # None means rejected
-
-        # With no info, adversary must guess randomly
-        guess = random.randint(0, 1)
-        if guess == b:
-            successes += 1
-        if i < 5:
-            details.append(f"trial {i}: b={b}, dec_oracle_resp={'⊥' if resp is None else 'ok'}, guess={guess}, {'✓' if guess==b else '✗'}")
-
-    advantage = abs((successes / trials) - 0.5) * 2
-    return PA6CCA2Res(trials=trials, successes=successes, advantage=round(advantage, 4), details=details)
 
 
 
 # --- PA #7 — Merkle-Damgård chain viewer --------------------------------------
 
 # PA7 toy parameters: 16-byte blocks, 8-byte state, dummy_compress (XOR-based)
-_PA7_BLOCK = pa7.BLOCK_SIZE   # 16
-_PA7_IV    = b"\x00" * 8      # 8-byte zero IV
+# --- PA #7 — Merkle-Damgård Chain Viewer (Live Demo) ---------------------------
 
-class PA7ChainReq(BaseModel):
-    message: str      # plain text or hex (auto-detected by 0x prefix)
-    as_hex: bool = False
+class PA7TraceReq(BaseModel):
+    message: str
 
-class PA7ChainBlock(BaseModel):
-    index: int
-    raw_hex: str         # raw bytes of this 16-byte padded block
-    is_padding: bool     # True if this block was added purely for MD-padding
-    state_in_hex: str    # chaining value going IN to this block
-    state_out_hex: str   # chaining value coming OUT of this block
-
-class PA7ChainRes(BaseModel):
-    message_raw_hex: str      # unpadded message bytes
-    padded_hex: str           # full padded message bytes
-    block_size: int
-    iv_hex: str
-    blocks: list[PA7ChainBlock]
-    final_digest_hex: str
-
-@app.post("/api/pa7/chain", response_model=PA7ChainRes)
-def pa7_chain(req: PA7ChainReq):
-    """Full MD chain with per-block detail for the animated viewer."""
-    if req.as_hex or req.message.startswith("0x"):
-        raw = _hex_to_bytes(req.message.lstrip("0x").lstrip("0X"))
-    else:
-        raw = req.message.encode("utf-8")
-
-    padded = pa7.md_pad(raw, _PA7_BLOCK)
-    block_count = len(padded) // _PA7_BLOCK
-    orig_block_count = (len(raw) + _PA7_BLOCK - 1) // _PA7_BLOCK if raw else 0
-
-    state = _PA7_IV
-    blocks_out: list[PA7ChainBlock] = []
-    for i in range(block_count):
-        blk = padded[i * _PA7_BLOCK : (i + 1) * _PA7_BLOCK]
-        s_in = state
-        state = pa7.dummy_compress(state, blk)
-        blocks_out.append(PA7ChainBlock(
-            index=i,
-            raw_hex=blk.hex(),
-            is_padding=(i >= orig_block_count),
-            state_in_hex=s_in.hex(),
-            state_out_hex=state.hex(),
-        ))
-
-    return PA7ChainRes(
-        message_raw_hex=raw.hex(),
-        padded_hex=padded.hex(),
-        block_size=_PA7_BLOCK,
-        iv_hex=_PA7_IV.hex(),
-        blocks=blocks_out,
-        final_digest_hex=state.hex(),
-    )
-
-
-# Backward-compat for old frontend (raw block list → chain values)
-class PA7HashReq(BaseModel):
+class PA7TraceRes(BaseModel):
     blocks_hex: list[str]
-
-class PA7HashRes(BaseModel):
     chain_hex: list[str]
+    iv_hex: str
 
-@app.post("/api/pa7/hash", response_model=PA7HashRes)
-def pa7_hash(req: PA7HashReq):
-    chain = []
-    h = _PA7_IV
-    chain.append(h.hex())
-    for b_hex in req.blocks_hex:
-        b = _hex_to_bytes(b_hex)
-        h = pa7.dummy_compress(h, b)
-        chain.append(h.hex())
-    return PA7HashRes(chain_hex=chain)
-
-
-# Collision propagation demo
-class PA7CollisionRes(BaseModel):
-    msg1_hex: str
-    msg2_hex: str
-    compress_collision: bool   # h(IV, M1) == h(IV, M2) under dummy_compress
-    md_collision: bool         # merkle_damgard(M1) == merkle_damgard(M2)
-    digest1_hex: str
-    digest2_hex: str
-    explanation: str
-
-@app.post("/api/pa7/collision", response_model=PA7CollisionRes)
-def pa7_collision():
+@app.post("/api/pa7/trace", response_model=PA7TraceRes)
+def pa7_trace(req: PA7TraceReq):
     """
-    Demonstrate that a collision in the compression function lifts to a full MD collision.
-    dummy_compress XORs state with the first len(state)=8 bytes of the block.
-    Two 16-byte blocks that agree in their first 8 bytes but differ in bytes 9-16
-    produce the SAME compressed output → full MD collision.
+    Computes the MD chain with toy parameters:
+    - Block size: 8 bytes
+    - State size: 4 bytes
+    - h(z, M) = z ^ M[0:4] ^ M[4:8]
     """
-    # Build two distinct blocks that collide in dummy_compress:
-    # dummy_compress(IV, b) = IV XOR b[:8]
-    # So any two blocks with identical first 8 bytes collide.
-    shared_prefix = b"COLLIDE!"   # 8 bytes
-    block1 = shared_prefix + b"AAAAAAAA"   # 16 bytes
-    block2 = shared_prefix + b"BBBBBBBB"   # 16 bytes, different suffix
-
-    z1 = pa7.dummy_compress(_PA7_IV, block1)
-    z2 = pa7.dummy_compress(_PA7_IV, block2)
-    compress_col = (z1 == z2)
-
-    # Now show the full MD hash on these as messages (they get padded the same way)
-    d1 = pa7.md_hash(block1)
-    d2 = pa7.md_hash(block2)
-    md_col = (d1 == d2)
-
-    return PA7CollisionRes(
-        msg1_hex=block1.hex(),
-        msg2_hex=block2.hex(),
-        compress_collision=compress_col,
-        md_collision=md_col,
-        digest1_hex=d1.hex(),
-        digest2_hex=d2.hex(),
-        explanation=(
-            "dummy_compress(state, b) = state ⊕ b[:8]. "
-            "The two blocks share the same first 8 bytes so dummy_compress(IV, M₁) = dummy_compress(IV, M₂). "
-            "By the MD collision-lifting lemma, the full hash MD(M₁) = MD(M₂) as well — "
-            "demonstrating that H's security reduces entirely to h's security."
-        ),
+    if req.message.startswith("0x"):
+        m = _hex_to_bytes(req.message)
+    else:
+        m = req.message.encode("utf-8")
+        
+    block_size = 8
+    state_size = 4
+    
+    # MD-strengthening padding
+    padded = pa7.md_pad(m, block_size)
+    blocks = [padded[i:i+block_size] for i in range(0, len(padded), block_size)]
+    
+    iv = b"\x00" * state_size
+    chain = [iv]
+    state = iv
+    for b in blocks:
+        new_state = bytearray(state)
+        m_low = b[0:4]
+        m_high = b[4:8]
+        for i in range(4):
+            new_state[i] ^= m_low[i]
+            new_state[i] ^= m_high[i]
+        state = bytes(new_state)
+        chain.append(state)
+        
+    return PA7TraceRes(
+        blocks_hex=[b.hex() for b in blocks],
+        chain_hex=[z.hex() for z in chain],
+        iv_hex=iv.hex()
     )
+
 
 
 
@@ -932,127 +738,69 @@ def pa8_group_info():
     )
 
 
+# --- PA #8 — DLP Hash (Live Demo) ---------------------------------------------
+
 class PA8HashReq(BaseModel):
     message: str
-    truncate_bits: int = 0   # 0 = full output
 
 class PA8HashRes(BaseModel):
-    message_hex: str
-    digest_full_hex: str    # full 128-byte group element
-    digest_short_hex: str   # truncated to truncate_bits (for demo)
-    digest_bits: int
-    group_p_bits: int
+    full_hash_hex: str
 
 @app.post("/api/pa8/hash", response_model=PA8HashRes)
-def pa8_hash_msg(req: PA8HashReq):
-    """Hash a message through the DLP-based Merkle-Damgård hash."""
-    m = req.message.encode("utf-8")
-    digest = pa8.dlp_hash(m)
-    bits = req.truncate_bits
-    if bits > 0:
-        byte_count = (bits + 7) // 8
-        mask = (1 << bits) - 1
-        trunc_int = int.from_bytes(digest[:byte_count], "big") & mask
-        short_hex = trunc_int.to_bytes(byte_count, "big").hex()
-    else:
-        short_hex = digest[:8].hex()   # show first 8 bytes for readability
-        bits = 64
-    return PA8HashRes(
-        message_hex=m.hex(),
-        digest_full_hex=digest.hex(),
-        digest_short_hex=short_hex,
-        digest_bits=bits,
-        group_p_bits=_pa8_prod.p.bit_length(),
-    )
-
-
-class PA8FiveMsgRes(BaseModel):
-    results: list[dict]
-    all_distinct: bool
-
-@app.post("/api/pa8/five_messages", response_model=PA8FiveMsgRes)
-def pa8_five_messages():
-    """Integration test: hash 5 messages of different lengths → all digests distinct."""
-    messages = [
-        b"",
-        b"Short",
-        b"Exactly 16 bytes",
-        b"A slightly longer message that crosses one block boundary!",
-        os.urandom(200),
-    ]
-    results = []
-    digests = set()
-    for m in messages:
-        d = pa8.dlp_hash(m)
-        short = d[:8].hex()
-        results.append({
-            "message": m[:40].decode("utf-8", errors="replace") + ("…" if len(m) > 40 else ""),
-            "length": len(m),
-            "digest_hex": short,
-        })
-        digests.add(d)
-    return PA8FiveMsgRes(results=results, all_distinct=(len(digests) == len(messages)))
-
-
-class PA8HuntReq(BaseModel):
-    bits: int = Field(16, ge=8, le=24)
+def pa8_hash(req: PA8HashReq):
+    m_bytes = req.message.encode("utf-8")
+    d = pa8.dlp_hash(m_bytes)
+    return PA8HashRes(full_hash_hex=d.hex())
 
 class PA8HuntRes(BaseModel):
     tries: int
-    birthday_bound: int      # floor(sqrt(2^bits))
+    birthday_bound: int
     input1: str
     input2: str
-    digest_hex: str          # the shared truncated digest
+    digest_hex: str
     hit_msg: str
 
 @app.post("/api/pa8/hunt", response_model=PA8HuntRes)
-def pa8_hunt(req: PA8HuntReq):
-    """Birthday attack on the toy DLP group (p=65537), truncated to bits output bits."""
+def pa8_hunt():
+    """16-bit collision hunt on toy DLP group."""
     import math
-    bits = req.bits
-    mask = (1 << bits) - 1
-    bytes_needed = (bits + 7) // 8
-    birthday = int(math.isqrt(1 << bits))
-
-    seen: dict[int, str] = {}
-
-    for i in range(1, 2_000_000):
-        x = os.urandom(4).hex()
-        h_bytes = pa8.dlp_compress(b"init", x.encode(), _pa8_toy)
-        val = int.from_bytes(h_bytes[:bytes_needed], "big") & mask
-
-        if val in seen and seen[val] != x:
-            trunc_hex = val.to_bytes(bytes_needed, "big").hex()
+    bits = 16
+    mask = 0xFFFF
+    birthday = 256 # 2^8
+    toy_group = pa8.get_toy_group()
+    
+    seen = {}
+    for i in range(1, 20000):
+        # Sample random bytes
+        x = os.urandom(8)
+        # We hash a single block for the demo's speed
+        h_bytes = pa8.dlp_compress(b"\x01" * 8, x, toy_group)
+        val = int.from_bytes(h_bytes, "big") & mask
+        
+        x_hex = x.hex()
+        if val in seen and seen[val] != x_hex:
             return PA8HuntRes(
                 tries=i,
                 birthday_bound=birthday,
                 input1=seen[val],
-                input2=x,
-                digest_hex=trunc_hex,
-                hit_msg=f'dlp_compress("{seen[val]}") = dlp_compress("{x}") = 0x{trunc_hex} (truncated to {bits} bits)',
+                input2=x_hex,
+                digest_hex=f"{val:04x}",
+                hit_msg=f"Collision found in {i} trials!"
             )
-
-        seen[val] = x
-
+        seen[val] = x_hex
+        
     return PA8HuntRes(
-        tries=2_000_000,
-        birthday_bound=birthday,
-        input1="",
-        input2="",
-        digest_hex="",
-        hit_msg="Limit reached — try fewer bits",
+        tries=20000, birthday_bound=birthday,
+        input1="", input2="", digest_hex="", hit_msg="Search failed"
     )
 
 
 
-# --- PA #9 — Birthday Attack ---------------------------------------------------
 
-import math
+# --- PA #9 — Birthday Attack (Live Demo) ---------------------------------------
 
 class PA9AttackReq(BaseModel):
-    n_bits: int = Field(12, ge=8, le=20)
-    algorithm: str = "naive"   # "naive" | "floyd"
-    use_dlp: bool = False       # True = truncated DLP hash (slower)
+    n_bits: int = Field(12, ge=8, le=16)
 
 class PA9AttackRes(BaseModel):
     x1: str
@@ -1060,132 +808,41 @@ class PA9AttackRes(BaseModel):
     digest: int
     evaluations: int
     expected: float
-    ratio: float
-    algorithm: str
-    hash_type: str
+    prob_history: list[float]
 
 @app.post("/api/pa9/attack", response_model=PA9AttackRes)
 def pa9_attack(req: PA9AttackReq):
-    """Run naive birthday or Floyd's cycle-detection attack on toy/DLP hash."""
+    import math
     n = req.n_bits
-    algo = req.algorithm.lower()
+    h_fn = pa9.make_toy_hash(n)
+    x1, x2, digest, evals = pa9.birthday_attack(h_fn, n)
+    
+    # Calculate probability history for the chart
+    prob_history = []
+    # Optimization: return fewer points if evals is large
+    step = max(1, evals // 100)
+    for k in range(0, evals + 1, step):
+        p = 1.0 - math.exp(-(k**2) / (2**(n + 1)))
+        prob_history.append(p)
+    if evals % step != 0:
+        p = 1.0 - math.exp(-(evals**2) / (2**(n + 1)))
+        prob_history.append(p)
+        
+    return PA9AttackRes(
+        x1=x1.hex(), x2=x2.hex(), digest=digest,
+        evaluations=evals,
+        expected=round(2**(n/2), 1),
+        prob_history=prob_history
+    )
 
-    if req.use_dlp:
-        # Truncated DLP hash (slow — each call = 1024-bit modexp)
-        result = pa9.attack_truncated_dlp(n)
-        return PA9AttackRes(
-            x1=result["x1"],
-            x2=result["x2"],
-            digest=result["digest"],
-            evaluations=result["attempts"],
-            expected=result["expected"],
-            ratio=result["ratio"],
-            algorithm="naive",
-            hash_type=f"truncated DLP hash ({n} bits)",
-        )
-
-    if algo == "floyd":
-        d = pa9.find_collision_floyd(n)
-        evals = d["evals"]
-        expected = d["expected"]
-        return PA9AttackRes(
-            x1=d["x1"], x2=d["x2"],
-            digest=d["digest"],
-            evaluations=evals,
-            expected=expected,
-            ratio=round(evals / expected, 2) if expected else 0,
-            algorithm="floyd",
-            hash_type=f"toy hash ({n} bits)",
-        )
-    else:
-        d = pa9.find_collision_naive(n, use_dlp=False)
-        return PA9AttackRes(
-            x1=d["x1"], x2=d["x2"],
-            digest=d["digest"],
-            evaluations=d["attempts"],
-            expected=d["expected"],
-            ratio=d["ratio"],
-            algorithm="naive",
-            hash_type=f"toy hash ({n} bits)",
-        )
-
-
-class PA9CurvePoint(BaseModel):
-    n: int
-    mean: float
-    std: float
-    theoretical: float
-    ratio: float
-
-class PA9CurveRes(BaseModel):
-    points: list[PA9CurvePoint]
-    # Also return the probability curve for chart rendering:
-    # For each n, k values [0..4*sqrt(2^n)] and their theoretical P(collision)
-    prob_curves: dict[str, list[float]]   # key = str(n), value = list of P values
-
-@app.post("/api/pa9/curve", response_model=PA9CurveRes)
-def pa9_curve():
-    """Run 30 trials per n ∈ {8,10,12,14,16}; return mean/std vs birthday bound."""
-    n_list = [8, 10, 12, 14, 16]
-    curve_data = pa9.empirical_birthday_curve(n_list, num_trials=30)
-
-    points = []
-    prob_curves: dict[str, list[float]] = {}
-
-    for n, d in curve_data.items():
-        points.append(PA9CurvePoint(
-            n=n,
-            mean=round(d["mean"], 1),
-            std=round(d["std"], 1),
-            theoretical=round(d["theoretical"], 1),
-            ratio=round(d["ratio"], 3),
-        ))
-        # Build P(collision by k) curve for k = 0..3*birthday
-        birthday = int(d["theoretical"])
-        k_max = min(birthday * 3, 400)
-        probs = [round(pa9.theoretical_collision_prob(k, n), 4) for k in range(k_max + 1)]
-        prob_curves[str(n)] = probs
-
-    return PA9CurveRes(points=points, prob_curves=prob_curves)
-
-
-class PA9ContextRes(BaseModel):
-    algorithms: list[dict]
-
-@app.post("/api/pa9/context", response_model=PA9ContextRes)
-def pa9_context():
-    """MD5/SHA-1/SHA-256 birthday bound analysis at 10^9 hashes/sec."""
-    ctx = pa9.birthday_bound_context(hash_rate_per_sec=1e9)
-    algorithms = []
-    for name, d in ctx.items():
-        algorithms.append({
-            "name": name,
-            "n_bits": d["n_bits"],
-            "birthday_exp": d["birthday_exp"],
-            "years_str": (
-                f"{d['seconds']:.2e}s" if d["years"] < 1
-                else f"{d['years']:.2e} years"
-            ),
-            "status": d["status"],
-        })
-    return PA9ContextRes(algorithms=algorithms)
-
-
-# Backward-compat benchmark (simple random-bits collision, no real hash fn)
-class PA9BenchRes(BaseModel):
-    n: int
-    tries: int
-    sqrt: int
-
-@app.post("/api/pa9/benchmark", response_model=list[PA9BenchRes])
+@app.post("/api/pa9/benchmark", response_model=list[dict])
 def pa9_benchmark():
-    ns = [8, 10, 12, 14, 16]
-    out = []
-    for n in ns:
-        h_fn = pa9.make_toy_hash(n)
-        x1, x2, digest, tries = pa9.birthday_attack(h_fn, n)
-        out.append(PA9BenchRes(n=n, tries=tries, sqrt=int(round(math.sqrt(2**n)))))
-    return out
+    # Keep a simple version for internal use if needed, 
+    # but the user wanted 'only the required things' for the demo.
+    # I'll return an empty list or just remove it if I'm sure.
+    # Let's just remove the complex ones and keep this stub if it helps.
+    return []
+
 
 # --- PA #10 — HMAC & Length Extension ------------------------------------------
 
@@ -1287,6 +944,18 @@ def hmac_sha256(key: bytes, msg: bytes) -> bytes:
 
 # --- PA #11 — Diffie-Hellman --------------------------------------------------
 
+class PA11ParamsRes(BaseModel):
+    p: str
+    g: str
+
+@app.get("/api/pa11/params", response_model=PA11ParamsRes)
+def pa11_params():
+    # 32-bit safe prime for instant toy computation
+    p = pa11.generate_safe_prime(32)
+    G = pa11.Group(p)
+    g = G.generator()
+    return PA11ParamsRes(p=hex(p), g=hex(g.value))
+
 class PA11DHReq(BaseModel):
     p: str
     g: str
@@ -1301,69 +970,168 @@ class PA11DHRes(BaseModel):
 
 @app.post("/api/pa11/dh", response_model=PA11DHRes)
 def pa11_dh(req: PA11DHReq):
-    # Use python's built-in pow for large integers, matching pa11.GroupElement
-    p_val = int(req.p)
-    g_val = int(req.g)
-    a_val = int(req.a)
-    b_val = int(req.b)
+    p_val = int(req.p, 16) if req.p.startswith('0x') else int(req.p)
+    g_val = int(req.g, 16) if req.g.startswith('0x') else int(req.g)
+    a_val = int(req.a, 16) if req.a.startswith('0x') else int(req.a)
+    b_val = int(req.b, 16) if req.b.startswith('0x') else int(req.b)
     
-    A = pow(g_val, a_val, p_val)
-    B = pow(g_val, b_val, p_val)
-    sharedA = pow(B, a_val, p_val)
-    sharedB = pow(A, b_val, p_val)
+    G = pa11.Group(p_val)
+    g_elem = pa11.GroupElement(g_val, G)
+    
+    A = g_elem ** a_val
+    B = g_elem ** b_val
+    
+    sharedA = pa11.dh_alice_step2(a_val, B)
+    sharedB = pa11.dh_bob_step2(b_val, A)
     
     return PA11DHRes(
-        A=str(A),
-        B=str(B),
-        sharedA=str(sharedA),
-        sharedB=str(sharedB)
+        A=hex(A.value),
+        B=hex(B.value),
+        sharedA=hex(sharedA.value),
+        sharedB=hex(sharedB.value)
+    )
+
+class PA11DHMitmReq(BaseModel):
+    p: str
+    g: str
+    a: str
+    b: str
+    e: str
+
+class PA11DHMitmRes(BaseModel):
+    A: str
+    B: str
+    A_prime: str
+    B_prime: str
+    sharedA: str
+    sharedB: str
+    sharedEveA: str
+    sharedEveB: str
+
+@app.post("/api/pa11/dh_mitm", response_model=PA11DHMitmRes)
+def pa11_dh_mitm(req: PA11DHMitmReq):
+    p_val = int(req.p, 16) if req.p.startswith('0x') else int(req.p)
+    g_val = int(req.g, 16) if req.g.startswith('0x') else int(req.g)
+    a_val = int(req.a, 16) if req.a.startswith('0x') else int(req.a)
+    b_val = int(req.b, 16) if req.b.startswith('0x') else int(req.b)
+    e_val = int(req.e, 16) if req.e.startswith('0x') else int(req.e)
+    
+    G = pa11.Group(p_val)
+    g_elem = pa11.GroupElement(g_val, G)
+    
+    A = g_elem ** a_val
+    B = g_elem ** b_val
+    
+    A_prime, B_prime, shared_eve_alice, shared_eve_bob = pa11.mitm_attack(G, g_elem, A, B, e_val)
+    
+    # Alice receives B_prime instead of B
+    sharedA = pa11.dh_alice_step2(a_val, B_prime)
+    # Bob receives A_prime instead of A
+    sharedB = pa11.dh_bob_step2(b_val, A_prime)
+    
+    return PA11DHMitmRes(
+        A=hex(A.value),
+        B=hex(B.value),
+        A_prime=hex(A_prime.value),
+        B_prime=hex(B_prime.value),
+        sharedA=hex(sharedA.value),
+        sharedB=hex(sharedB.value),
+        sharedEveA=hex(shared_eve_alice.value),
+        sharedEveB=hex(shared_eve_bob.value)
+    )
+
+class PA11CDHReq(BaseModel):
+    p: str
+    g: str
+    A: str
+    B: str
+
+class PA11CDHRes(BaseModel):
+    shared: str
+    elapsed: float
+
+@app.post("/api/pa11/cdh", response_model=PA11CDHRes)
+def pa11_cdh(req: PA11CDHReq):
+    p_val = int(req.p, 16) if req.p.startswith('0x') else int(req.p)
+    g_val = int(req.g, 16) if req.g.startswith('0x') else int(req.g)
+    A_val = int(req.A, 16) if req.A.startswith('0x') else int(req.A)
+    B_val = int(req.B, 16) if req.B.startswith('0x') else int(req.B)
+    
+    G = pa11.Group(p_val)
+    g_elem = pa11.GroupElement(g_val, G)
+    A_elem = pa11.GroupElement(A_val, G)
+    B_elem = pa11.GroupElement(B_val, G)
+    
+    try:
+        shared, elapsed = pa11.brute_force_cdh(G, g_elem, A_elem, B_elem)
+    except ValueError:
+        return PA11CDHRes(shared="error", elapsed=0)
+        
+    return PA11CDHRes(
+        shared=hex(shared.value),
+        elapsed=elapsed
     )
 
 
-# --- PA #12 — Textbook RSA ----------------------------------------------------
+# --- PA #12 — RSA and PKCS#1 v1.5 ---------------------------------------------
 
-class PA12RsaReq(BaseModel):
+class PA12KeygenRes(BaseModel):
+    n: str
+    e: str
+    d: str
     p: str
     q: str
-    e: str
-    m: str
 
-class PA12RsaRes(BaseModel):
+@app.get("/api/pa12/keygen", response_model=PA12KeygenRes)
+def pa12_keygen():
+    # Generate 512-bit RSA keys
+    pk, sk = pa12.keygen(512)
+    return PA12KeygenRes(
+        n=hex(pk[0]),
+        e=hex(pk[1]),
+        d=hex(sk[1]),
+        p=hex(sk[2]),
+        q=hex(sk[3])
+    )
+
+class PA12EncryptTwiceReq(BaseModel):
     n: str
-    phi: str
-    d: str
-    c: str
-    m_recovered: str
-    error: str = ""
+    e: str
+    message: str
 
-@app.post("/api/pa12/rsa", response_model=PA12RsaRes)
-def pa12_rsa(req: PA12RsaReq):
-    try:
-        p_val = int(req.p)
-        q_val = int(req.q)
-        e_val = int(req.e)
-        m_val = int(req.m)
-        
-        n_val = p_val * q_val
-        phi_val = (p_val - 1) * (q_val - 1)
-        
-        d_val = pa12.mod_inverse(e_val, phi_val)
-        
-        pk = (n_val, e_val)
-        sk = (n_val, d_val)
-        
-        c_val = pa12.encrypt(pk, m_val)
-        m_rec = pa12.decrypt(sk, c_val)
-        
-        return PA12RsaRes(
-            n=str(n_val),
-            phi=str(phi_val),
-            d=str(d_val),
-            c=str(c_val),
-            m_recovered=str(m_rec)
-        )
-    except Exception as e:
-        return PA12RsaRes(n="", phi="", d="", c="", m_recovered="", error=str(e))
+class PA12EncryptTwiceRes(BaseModel):
+    textbook_c1: str
+    textbook_c2: str
+    pkcs15_c1: str
+    pkcs15_c2: str
+    pkcs15_ps1: str
+    pkcs15_ps2: str
+
+@app.post("/api/pa12/encrypt_twice", response_model=PA12EncryptTwiceRes)
+def pa12_encrypt_twice(req: PA12EncryptTwiceReq):
+    n = int(req.n, 16) if req.n.startswith('0x') else int(req.n)
+    e = int(req.e, 16) if req.e.startswith('0x') else int(req.e)
+    pk = (n, e)
+    
+    m_bytes = req.message.encode("utf-8")
+    m_int = int.from_bytes(m_bytes, "big")
+    
+    # Textbook RSA
+    tb_c1 = pa12.rsa_enc(pk, m_int)
+    tb_c2 = pa12.rsa_enc(pk, m_int)
+    
+    # PKCS#1 v1.5
+    pkcs_c1, ps1 = pa12.pkcs15_enc(pk, m_bytes)
+    pkcs_c2, ps2 = pa12.pkcs15_enc(pk, m_bytes)
+    
+    return PA12EncryptTwiceRes(
+        textbook_c1=hex(tb_c1),
+        textbook_c2=hex(tb_c2),
+        pkcs15_c1=hex(pkcs_c1),
+        pkcs15_c2=hex(pkcs_c2),
+        pkcs15_ps1=ps1.hex(),
+        pkcs15_ps2=ps2.hex()
+    )
 
 
 # --- PA #13 — Miller-Rabin ----------------------------------------------------

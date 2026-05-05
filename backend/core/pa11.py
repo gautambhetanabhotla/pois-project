@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from __future__ import annotations
+
 class Group:
     """Represents the multiplicative group Zp*."""
     def __init__(self, p):
@@ -73,19 +75,18 @@ class GroupElement:
         inv_value = pow(self.value, -1, self.group.p)
         return GroupElement(inv_value, self.group)
 
-import pa1
+import pa13
+from pa1 import randbits
 
 def generate_safe_prime(bits: int) -> int:
     """Return a prime p of the form 2q+1 where q is also prime."""
     while True:
-        p = pa1.randbits(bits)
-        p |= (1 << (bits - 1)) | 1
-        if p % 2 == 0:
-            continue
-        # To be safe prime, q = (p-1)//2 must be prime
-        q = (p - 1) // 2
-        if pa1.miller_rabin(q, rounds=10) and pa1.miller_rabin(p, rounds=10):
-            return p
+        q = randbits(bits - 1)
+        q |= (1 << (bits - 2)) | 1
+        if pa13.miller_rabin(q, 40):
+            p = 2 * q + 1
+            if pa13.miller_rabin(p, 40):
+                return p
 
 
 # =============================================================================
@@ -170,6 +171,58 @@ def derive_key(shared: GroupElement) -> bytes:
     key = dlp_hash(shared_bytes)
     
     return key
+
+
+def dh_alice_step1(G: Group, g: GroupElement | None = None) -> tuple[int, GroupElement]:
+    """Alice generates private exponent a and public value A."""
+    g, A, a = keygen(G, g)
+    return a, A
+
+def dh_bob_step1(G: Group, g: GroupElement) -> tuple[int, GroupElement]:
+    """Bob generates private exponent b and public value B, using the same generator."""
+    _, B, b = keygen(G, g)
+    return b, B
+
+def dh_alice_step2(a: int, B: GroupElement) -> GroupElement:
+    """Alice computes shared secret K = B^a."""
+    return compute_shared(B, a)
+
+def dh_bob_step2(b: int, A: GroupElement) -> GroupElement:
+    """Bob computes shared secret K = A^b."""
+    return compute_shared(A, b)
+
+def mitm_attack(G: Group, g: GroupElement, A: GroupElement, B: GroupElement, e: int) -> tuple[GroupElement, GroupElement, GroupElement, GroupElement]:
+    """Eve intercepts A and B, substitutes her own A' and B', and establishes separate secrets."""
+    A_prime = g ** e
+    B_prime = g ** e
+    shared_eve_alice = A ** e
+    shared_eve_bob = B ** e
+    return A_prime, B_prime, shared_eve_alice, shared_eve_bob
+
+import time
+
+def brute_force_cdh(G: Group, g: GroupElement, A: GroupElement, B: GroupElement) -> tuple[GroupElement, float]:
+    """Demonstrate computing g^ab from g^a and g^b without knowing a or b requires a brute-force search."""
+    start_time = time.perf_counter()
+    target = A.value
+    base = g.value
+    p = G.p
+    current = base
+    secret_a = None
+    
+    # We know a is in [1, G.q].
+    for i in range(1, G.q + 1):
+        if current == target:
+            secret_a = i
+            break
+        current = (current * base) % p
+        
+    if secret_a is None:
+        raise ValueError("Could not find secret exponent a.")
+        
+    shared_secret = B ** secret_a
+    elapsed = time.perf_counter() - start_time
+    return shared_secret, elapsed
 
 
 # =============================================================================
