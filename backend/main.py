@@ -546,27 +546,6 @@ def pa5_forge(req: PA5ForgeReq):
 # The attacker knows (m, H(k||m)) and wants to produce a valid tag for
 # m || padding || suffix WITHOUT knowing k.
 
-import struct
-
-def _sha256_pad(msg_len_bytes: int) -> bytes:
-    """Return the SHA-256 padding that would be appended to a message of given byte length."""
-    bit_len = msg_len_bytes * 8
-    pad = b"\x80"
-    pad += b"\x00" * ((55 - msg_len_bytes) % 64)
-    pad += struct.pack(">Q", bit_len)
-    return pad
-
-
-def _sha256_compress_state(data: bytes, h_state: tuple[int, ...]) -> tuple[int, ...]:
-    """Apply one 64-byte SHA-256 block to existing state (h0..h7)."""
-    # We reconstruct the extended hash by feeding the state into a length-extended
-    # computation using Python's hashlib in a principled way.
-    # Since Python doesn't expose raw SHA-256 state injection, we simulate the
-    # length-extension attack conceptually by showing what the extended hash equals.
-    # For a faithful demo we use a simplified Davies-Meyer hash over our own PRP
-    # so we CAN inject state (proper custom hash with injectable IV).
-    pass   # see below — we use our own pa7 hash for this demo
-
 
 class PA5LenExtReq(BaseModel):
     key_hex: str      # 16-byte key (the "secret" for H(k||m) demo)
@@ -1230,7 +1209,7 @@ class PA10LenExtRes(BaseModel):
 
 @app.post("/api/pa10/len_ext", response_model=PA10LenExtRes)
 def pa10_len_ext(req: PA10LenExtReq):
-    import hashlib
+    import hashlib # SPECIFICALLY ASKED TO USE, FOR REFERENCE
     k = _hex_to_bytes(req.key_hex)
     m = req.message.encode("utf-8")
     suffix = req.suffix.encode("utf-8")
@@ -1520,7 +1499,6 @@ def pa17_schnorr(req: PA17SchnorrReq):
         m_bytes = m.encode("utf-8")
         r_str = str(r).encode("utf-8")
         
-        import pa8
         h_bytes = pa8.dlp_hash(r_str + m_bytes)
         h = h_bytes.hex()
         
@@ -1592,20 +1570,20 @@ class PA20Res(BaseModel):
 @app.post("/api/pa20", response_model=PA20Res)
 def pa20_post(req: PA20Req):
     try:
-      from core.pa20 import int_to_bits, Secure_Eval
-      if req.circuit == "millionaire":
-          from core.pa20 import millionaires_problem_circuit
-          result = Secure_Eval(millionaires_problem_circuit(8), int_to_bits(input0, 16), int_to_bits(input1, 16))
-          return PA20Res(result=result)
-      elif req.circuit == "equality":
-          from core.pa20 import equality_test_circuit
-          result = Secure_Eval(equality_test_circuit(16), int_to_bits(input0, 16), int_to_bits(input1, 16))
-          return PA20Res(result=result)
-      elif req.circuit == "addition":
-          from core.pa20 import bit_addition_circuit
-          result = Secure_Eval(bit_addition_circuit(16), int_to_bits(input0, 16), int_to_bits(input1, 16))
-          return PA20Res(result=int("".join(str(b) for b in result), 2))
-      else:
-          raise HTTPException(status_code=400, detail="Invalid circuit name")
+        from core.pa20 import int_to_bits, bits_to_int, Secure_Eval
+        if req.circuit == "millionaire":
+            from core.pa20 import millionaires_problem_circuit
+            result_bits = Secure_Eval(millionaires_problem_circuit(16), int_to_bits(req.input0, 16), int_to_bits(req.input1, 16))
+            return PA20Res(result=int(result_bits[0]))
+        elif req.circuit == "equality":
+            from core.pa20 import equality_test_circuit
+            result_bits = Secure_Eval(equality_test_circuit(16), int_to_bits(req.input0, 16), int_to_bits(req.input1, 16))
+            return PA20Res(result=int(result_bits[0]))
+        elif req.circuit == "addition":
+            from core.pa20 import bit_addition_circuit
+            result_bits = Secure_Eval(bit_addition_circuit(16), int_to_bits(req.input0, 16), int_to_bits(req.input1, 16))
+            return PA20Res(result=bits_to_int(result_bits))
+        else:
+            raise HTTPException(status_code=400, detail="Invalid circuit name")
     except Exception as e:
         return PA20Res(result=0, error=str(e))

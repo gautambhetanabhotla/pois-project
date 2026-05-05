@@ -7,6 +7,7 @@ import time
 from typing import List, Dict
 
 import pa1
+import pa13
 
 # 1. EXTENDED EUCLIDEAN ALGORITHM & CRT SOLVER
 
@@ -111,19 +112,12 @@ def hastad_attack(ciphertexts: list[int], moduli: list[int], e: int) -> int:
 
 # 4. DEMOS AND UNIT TESTS
 
-def _get_prime(bits: int) -> int:
-    while True:
-        p = pa1.randbits(bits)
-        p |= (1 << (bits - 1)) | 1
-        if pa1.miller_rabin(p):
-            return p
-
 def _generate_rsa_keypair(bits: int, e_val: int = 65537) -> dict:
     """Toy RSA key generation for testing."""
     import math
     while True:
-        p = _get_prime(bits // 2)
-        q = _get_prime(bits // 2)
+        p = pa13.gen_prime(bits // 2)
+        q = pa13.gen_prime(bits // 2)
         if p == q: continue
         phi = (p - 1) * (q - 1)
         if math.gcd(e_val, phi) == 1:

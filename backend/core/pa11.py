@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 class Group:
     """Represents the multiplicative group Zp*."""
     def __init__(self, p):
@@ -71,9 +73,19 @@ class GroupElement:
         inv_value = pow(self.value, -1, self.group.p)
         return GroupElement(inv_value, self.group)
 
+import pa1
+
 def generate_safe_prime(bits: int) -> int:
     """Return a prime p of the form 2q+1 where q is also prime."""
-    return 23
+    while True:
+        p = pa1.randbits(bits)
+        p |= (1 << (bits - 1)) | 1
+        if p % 2 == 0:
+            continue
+        # To be safe prime, q = (p-1)//2 must be prime
+        q = (p - 1) // 2
+        if pa1.miller_rabin(q, rounds=10) and pa1.miller_rabin(p, rounds=10):
+            return p
 
 
 # =============================================================================

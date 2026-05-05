@@ -13,74 +13,13 @@ No external crypto libraries used.
 
 import random
 import unittest
+import pa1
+import pa13
 
 
 # =============================================================================
 # Utility Functions
 # =============================================================================
-
-def is_prime(n: int, k: int = 40) -> bool:
-    """
-    Miller-Rabin primality test.
-    
-    Args:
-        n: Number to test for primality
-        k: Number of rounds (higher k = higher confidence)
-        
-    Returns:
-        True if n is probably prime (error probability < 4^(-k))
-    """
-    if n < 2:
-        return False
-    if n == 2 or n == 3:
-        return True
-    if n % 2 == 0:
-        return False
-    
-    # Write n-1 as 2^r * d where d is odd
-    r = 0
-    d = n - 1
-    while d % 2 == 0:
-        r += 1
-        d //= 2
-    
-    # Witness loop
-    for _ in range(k):
-        a = random.randint(2, n - 2)
-        x = pow(a, d, n)
-        
-        if x == 1 or x == n - 1:
-            continue
-        
-        for _ in range(r - 1):
-            x = pow(x, 2, n)
-            if x == n - 1:
-                break
-        else:
-            return False
-    
-    return True
-
-
-def generate_prime(bits: int) -> int:
-    """
-    Generate a random prime of the specified bit length.
-    
-    Args:
-        bits: Desired bit length of the prime
-        
-    Returns:
-        A random prime number with approximately 'bits' bits
-    """
-    while True:
-        # Generate random odd number with the right bit length
-        n = random.getrandbits(bits)
-        n |= (1 << bits - 1)  # Set the highest bit
-        n |= 1  # Make it odd
-        
-        if is_prime(n):
-            return n
-
 
 def extended_gcd(a: int, b: int) -> tuple:
     """
@@ -154,13 +93,12 @@ def keygen(bits: int) -> tuple:
         - (n, e) is the public key
         - (n, d) is the private key
     """
-    # Generate two large primes
-    p = generate_prime(bits)
-    q = generate_prime(bits)
+    p = pa13.gen_prime(bits)
+    q = pa13.gen_prime(bits)
     
     # Ensure p != q
     while p == q:
-        q = generate_prime(bits)
+        q = pa13.gen_prime(bits)
     
     # Compute n and φ(n)
     n = p * q
@@ -175,10 +113,10 @@ def keygen(bits: int) -> tuple:
         if gcd == 1:
             break
         # Rarely happens with e=65537, but try different primes if it does
-        p = generate_prime(bits)
-        q = generate_prime(bits)
+        p = pa13.gen_prime(bits)
+        q = pa13.gen_prime(bits)
         while p == q:
-            q = generate_prime(bits)
+            q = pa13.gen_prime(bits)
         n = p * q
         phi = (p - 1) * (q - 1)
     
@@ -270,7 +208,7 @@ class TestRSA(unittest.TestCase):
     def test_random_message(self):
         """Test encryption/decryption of random message."""
         # Generate random message smaller than modulus
-        message = random.randint(1, self.pk[0] - 1)
+        message = pa1.randbelow(self.pk[0] - 1) + 1
         ciphertext = encrypt(self.pk, message)
         decrypted = decrypt(self.sk, ciphertext)
         self.assertEqual(message, decrypted)
@@ -294,24 +232,6 @@ class TestRSA(unittest.TestCase):
         inv = mod_inverse(3, 11)
         self.assertEqual((3 * inv) % 11, 1)
     
-    def test_is_prime(self):
-        """Test primality testing."""
-        # Known primes
-        self.assertTrue(is_prime(2))
-        self.assertTrue(is_prime(3))
-        self.assertTrue(is_prime(5))
-        self.assertTrue(is_prime(7))
-        self.assertTrue(is_prime(11))
-        self.assertTrue(is_prime(97))
-        
-        # Known composites
-        self.assertFalse(is_prime(4))
-        self.assertFalse(is_prime(6))
-        self.assertFalse(is_prime(8))
-        self.assertFalse(is_prime(9))
-        self.assertFalse(is_prime(15))
-        self.assertFalse(is_prime(100))
-
 
 # =============================================================================
 # Demo

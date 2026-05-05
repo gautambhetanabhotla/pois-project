@@ -8,32 +8,19 @@ from typing import Tuple, Dict
 
 import pa8
 import pa1
+from pa14 import mod_inverse
+import pa13
 
 # -----------------------------------------------------------------------------
 # PHASE 1: Basic RSA Key Generation (PA#12 dependency)
 # -----------------------------------------------------------------------------
 
-def mod_inverse(a: int, m: int) -> int:
-    m0, y, x = m, 0, 1
-    if m == 1: return 0
-    while a > 1:
-        q = a // m
-        a, m = m, a % m
-        x, y = y, x - q * y
-    if x < 0: x += m0
-    return x
 
-def get_prime(bits: int) -> int:
-    while True:
-        p = pa1.randbits(bits)
-        p |= (1 << (bits - 1)) | 1
-        if pa1.miller_rabin(p):
-            return p
 
 def rsa_keygen(bits: int = 2048, e: int = 65537) -> Tuple[Dict, Dict]:
     while True:
-        p = get_prime(bits // 2)
-        q = get_prime(bits // 2)
+        p = pa13.gen_prime(bits // 2)
+        q = pa13.gen_prime(bits // 2)
         if p == q: continue
         phi = (p - 1) * (q - 1)
         if math.gcd(e, phi) == 1:

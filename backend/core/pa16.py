@@ -6,8 +6,10 @@ import os
 import sys
 import unittest
 import pa1
+from pa8 import dlp_hash
+from pa14 import mod_inverse
 
-from pa11 import Group, GroupElement
+from pa11 import Group, GroupElement, generate_safe_prime
 
 @dataclass
 class PublicKey:
@@ -24,6 +26,7 @@ class SecretKey:
 
 Ciphertext = Tuple[GroupElement, GroupElement]
 Message = GroupElement
+Signature = Tuple[int, int]
 
 # -----------------------------------------------------------------------------
 # PHASE 1: ElGamal Cryptosystem Functions
@@ -52,6 +55,32 @@ def Dec(sk: SecretKey, c: Ciphertext) -> Message:
     c1_x = c1 ** sk.x
     c1_x_inv = c1_x.inverse()
     return c2 * c1_x_inv
+
+def Sign(pk: PublicKey, sk: SecretKey, m_bytes: bytes) -> Signature:
+    """Sign a message m using ElGamal Signatures."""
+    h_m = int.from_bytes(dlp_hash(m_bytes), 'big')
+    
+    import math
+    while True:
+        k = pa1.randbelow(pk.G.p - 2) + 1  # 1 to p-2
+        if math.gcd(k, pk.G.p - 1) == 1:
+            break
+            
+    r = pow(pk.g.value, k, pk.G.p)
+    k_inv = mod_inverse(k, pk.G.p - 1)
+    s = ((h_m - sk.x * r) * k_inv) % (pk.G.p - 1)
+    return r, s
+
+def Verify(pk: PublicKey, m_bytes: bytes, sig: Signature) -> bool:
+    """Verify a signature sig on a message m using ElGamal Signatures."""
+    r, s = sig
+    if not (0 < r < pk.G.p):
+        return False
+    h_m = int.from_bytes(dlp_hash(m_bytes), 'big')
+    
+    v1 = pow(pk.g.value, h_m, pk.G.p)
+    v2 = (pow(pk.h.value, r, pk.G.p) * pow(r, s, pk.G.p)) % pk.G.p
+    return v1 == v2
 
 # -----------------------------------------------------------------------------
 # PHASE 2: CCA Malleability Vulnerability
@@ -112,15 +141,7 @@ def cpa_game(G: Group, rounds: int = 20) -> float:
 # PHASE 4: Utility functions and Demos
 # -----------------------------------------------------------------------------
 
-def get_real_safe_prime(bits: int) -> int:
-    while True:
-        p = pa1.randbits(bits)
-        p |= (1 << (bits - 1)) | 1
-        if p % 2 == 0: continue
-        # To be safe prime, q = (p-1)//2 must be prime
-        q = (p - 1)//2
-        if pa1.miller_rabin(q, rounds=10) and pa1.miller_rabin(p, rounds=10):
-            return p
+
 
 def _demo():
     print("=== PA #16 ElGamal Encryption ===\n")
@@ -147,7 +168,7 @@ def _demo():
     print(f"Tiny group advantage (should be ~0.5): {adv_tiny:.2f}")
 
     print("\nRunning IND-CPA game on LARGE secure group (~256 bit)...")
-    large_p = get_real_safe_prime(256)
+    large_p = generate_safe_prime(256)
     secure_group = Group(large_p)
     adv_secure = cpa_game(secure_group, rounds=30)
     print(f"Secure group advantage (should be ~0.0): {adv_secure:.2f}")
@@ -169,6 +190,16 @@ class TestPA16(unittest.TestCase):
         c_forged = malleability_attack(c, factor=2)
         expected_m = self.G(14)
         self.assertEqual(Dec(self.sk, c_forged), expected_m)
+    
+    def test_sign_verify_valid(self):
+        m_bytes = b"test message"
+        t = Sign(self.pk, self.sk, m_bytes)
+        self.assertTrue(Verify(self.pk, m_bytes, t))
+
+    def test_sign_verify_invalid(self):
+        m_bytes = b"test message"
+        t = Sign(self.pk, self.sk, m_bytes)
+        self.assertFalse(Verify(self.pk, b"other message", t))
 
 if __name__ == "__main__":
     _demo()

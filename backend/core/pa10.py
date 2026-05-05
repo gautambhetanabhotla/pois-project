@@ -17,6 +17,7 @@ No external crypto libraries used - only PA#2's PRF.
 import os
 import unittest
 from pa2 import F, BLOCK_SIZE
+import pa1
 
 
 # =============================================================================
@@ -236,34 +237,13 @@ def dec_cca(k_enc: bytes, k_mac: bytes, nonce: bytes, c: bytes, tag: bytes) -> b
     expected_tag = hmac(k_mac, mac_input)
     
     # Constant-time comparison to prevent timing attacks
-    if not _constant_time_compare(tag, expected_tag):
+    if not pa1.compare_digest(tag, expected_tag):
         return None
     
     # MAC verified, now decrypt
     m = dec(k_enc, nonce, c)
     
     return m
-
-
-def _constant_time_compare(a: bytes, b: bytes) -> bool:
-    """
-    Constant-time byte comparison to prevent timing attacks.
-    
-    Args:
-        a: First byte string
-        b: Second byte string
-        
-    Returns:
-        True if a == b, False otherwise
-    """
-    if len(a) != len(b):
-        return False
-    
-    result = 0
-    for x, y in zip(a, b):
-        result |= x ^ y
-    
-    return result == 0
 
 
 # =============================================================================

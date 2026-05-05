@@ -19,7 +19,6 @@ def miller_rabin(n: int, k: int = 40) -> bool:
         return False
         
     d = n - 1
-    d = n - 1
     s = 0
     while d % 2 == 0:
         d //= 2
