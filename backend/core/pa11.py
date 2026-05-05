@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 class Group:
     """Represents the multiplicative group Zp*."""
     def __init__(self, p):
