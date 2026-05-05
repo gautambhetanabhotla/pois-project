@@ -68,6 +68,42 @@ def _hex_to_bytes(h: str) -> bytes:
         raise HTTPException(status_code=400, detail=f"invalid hex: {e}")
 
 
+
+# --- PA #0 — Minicrypt Scaffolding --------------------------------------------
+
+import core.pa0 as pa0
+
+class PA0ChainReq(BaseModel):
+    foundation: str
+    source_prim: str
+    target_prim: str
+    key: str
+    message: str
+    bidi: bool = False
+
+class PA0Step(BaseModel):
+    func: str
+    input: str
+    output: str
+
+class PA0ChainRes(BaseModel):
+    build_steps: list[PA0Step]
+    reduce_steps: list[PA0Step]
+
+@app.post("/api/pa0/chain", response_model=PA0ChainRes)
+def pa0_chain(req: PA0ChainReq):
+    b_steps = pa0.build_chain(req.foundation, req.source_prim, req.key, req.message)
+    if req.bidi:
+        r_steps = pa0.reduce_chain(req.target_prim, req.source_prim, req.key, req.message)
+    else:
+        r_steps = pa0.reduce_chain(req.source_prim, req.target_prim, req.key, req.message)
+        
+    return PA0ChainRes(
+        build_steps=[PA0Step(**s) for s in b_steps],
+        reduce_steps=[PA0Step(**s) for s in r_steps]
+    )
+
+
 # --- PA #1 — OWF + HILL PRG ---------------------------------------------------
 
 class PA1PrgReq(BaseModel):

@@ -1,18 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { ArrowRight, ArrowLeft, ArrowLeftRight, ShieldAlert } from "lucide-react";
 import { M, MB } from "@/components/Math";
-import { ArrowRight, ArrowLeft, ArrowLeftRight } from "lucide-react";
 
 export const Route = createFileRoute("/clique")({
   head: () => ({
     meta: [
-      { title: "PA#0 — Minicrypt Clique Explorer · PoIS" },
+      { title: "PA#0 — Minicrypt Scaffolding · PoIS" },
       { name: "description", content: "Interactive explorer of the Minicrypt clique: pick any primitive and reduce it to any other." },
-      { property: "og:title", content: "PA#0 — Minicrypt Clique Explorer" },
-      { property: "og:description", content: "Build any primitive from any other in Impagliazzo's Minicrypt." },
     ],
   }),
   component: CliquePage,
@@ -20,6 +18,9 @@ export const Route = createFileRoute("/clique")({
 
 const PRIMS = ["OWF", "PRG", "PRF", "SKE", "MAC", "CRHF"] as const;
 type Prim = typeof PRIMS[number];
+
+type ChainStep = { func: string; input: string; output: string };
+type ChainResponse = { build_steps: ChainStep[]; reduce_steps: ChainStep[] };
 
 const REDUCTIONS: Record<Prim, Record<Prim, { steps: string[]; refs: string }>> = {
   OWF: {
@@ -72,103 +73,196 @@ const REDUCTIONS: Record<Prim, Record<Prim, { steps: string[]; refs: string }>> 
   },
 };
 
+function Mono({ children, className = "" }: { children: React.ReactNode, className?: string }) {
+  return <span className={`font-mono text-[11px] break-all ${className}`}>{children}</span>;
+}
+
 function CliquePage() {
+  const [foundation, setFoundation] = useState<"AES" | "DLP">("AES");
   const [from, setFrom] = useState<Prim>("OWF");
   const [to, setTo] = useState<Prim>("PRF");
   const [bidi, setBidi] = useState(false);
+  const [keyInput, setKeyInput] = useState("secret");
+  const [msgInput, setMsgInput] = useState("hello");
+  
+  const [chain, setChain] = useState<ChainResponse | null>(null);
+
+  useEffect(() => {
+    fetch("/api/pa0/chain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        foundation,
+        source_prim: from,
+        target_prim: to,
+        key: keyInput,
+        message: msgInput,
+        bidi
+      })
+    })
+    .then(r => r.json())
+    .then(data => setChain(data))
+    .catch(console.error);
+  }, [foundation, from, to, bidi, keyInput, msgInput]);
 
   const fwd = REDUCTIONS[from][to];
   const bwd = REDUCTIONS[to][from];
+  
+  const isStub = fwd.refs === "stub" || (bidi && bwd.refs === "stub");
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="font-mono text-xs text-gb-aqua">// PA#0</div>
-      <h1 className="text-4xl font-bold">Minicrypt Clique Explorer</h1>
-      <p className="mt-2 text-muted-foreground max-w-2xl">
-        Pick a foundation primitive and a target — see the chain of reductions that builds one
-        from the other. Toggle bidirectional mode to see both directions of the equivalence.
-      </p>
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 space-y-6">
+      <div className="flex justify-between items-end">
+        <div>
+          <div className="font-mono text-xs text-gb-aqua">// PA#0</div>
+          <h1 className="text-4xl font-bold">Minicrypt Scaffolding</h1>
+          <p className="mt-2 text-muted-foreground max-w-2xl">
+            Interactive data-flow explorer. Select your foundation, trace the bits, and watch reductions happen live.
+          </p>
+        </div>
+      </div>
 
-      <Tabs defaultValue="explorer" className="mt-6">
-        <TabsList>
-          <TabsTrigger value="explorer">Explorer</TabsTrigger>
-          <TabsTrigger value="theory">Theory</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="explorer" className="mt-4">
-          <Card className="p-5">
-            <div className="grid sm:grid-cols-2 gap-6">
-              <div>
-                <div className="font-mono text-xs text-muted-foreground mb-2">FOUNDATION</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {PRIMS.map((p) => (
-                    <Button
-                      key={p}
-                      size="sm"
-                      variant={from === p ? "default" : "outline"}
-                      onClick={() => setFrom(p)}
-                      className="font-mono"
-                    >
-                      {p}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="font-mono text-xs text-muted-foreground mb-2">TARGET</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {PRIMS.map((p) => (
-                    <Button
-                      key={p}
-                      size="sm"
-                      variant={to === p ? "default" : "outline"}
-                      onClick={() => setTo(p)}
-                      className="font-mono"
-                    >
-                      {p}
-                    </Button>
-                  ))}
-                </div>
+      {/* TIER 1: Controls */}
+      <Card className="p-5 border-2 border-border/50 bg-muted/20">
+        <div className="grid lg:grid-cols-[1fr_2fr] gap-8">
+          <div className="space-y-5">
+            <div>
+              <div className="font-mono text-[10px] font-bold text-muted-foreground mb-2">1. FOUNDATION LAYER</div>
+              <div className="flex bg-muted rounded-md p-1 border">
+                <Button size="sm" variant={foundation === "AES" ? "default" : "ghost"} className="flex-1 font-mono text-xs" onClick={() => setFoundation("AES")}>
+                  AESFoundation
+                </Button>
+                <Button size="sm" variant={foundation === "DLP" ? "default" : "ghost"} className="flex-1 font-mono text-xs" onClick={() => setFoundation("DLP")}>
+                  DLPFoundation
+                </Button>
               </div>
             </div>
-
-            <div className="mt-6 flex items-center justify-center gap-3">
-              <span className="rounded-md border border-gb-yellow/50 bg-gb-yellow/10 px-3 py-2 font-mono text-gb-yellow">
-                {from}
-              </span>
-              {bidi ? <ArrowLeftRight className="text-gb-aqua" /> : <ArrowRight className="text-gb-aqua" />}
-              <span className="rounded-md border border-gb-aqua/50 bg-gb-aqua/10 px-3 py-2 font-mono text-gb-aqua">
-                {to}
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => setBidi((b) => !b)} className="ml-2">
-                {bidi ? "single" : "bidirectional"}
-              </Button>
+            
+            <div className="space-y-3">
+              <div className="font-mono text-[10px] font-bold text-muted-foreground mb-1">2. LIVE DATA</div>
+              <div>
+                <label className="font-mono text-[10px] text-muted-foreground">Key Input (k)</label>
+                <Input className="font-mono text-xs h-8 bg-background" value={keyInput} onChange={e => setKeyInput(e.target.value)} />
+              </div>
+              <div>
+                <label className="font-mono text-[10px] text-muted-foreground">Message Input (x / m)</label>
+                <Input className="font-mono text-xs h-8 bg-background" value={msgInput} onChange={e => setMsgInput(e.target.value)} />
+              </div>
             </div>
-          </Card>
-
-          <div className={`mt-4 grid gap-4 ${bidi ? "md:grid-cols-2" : "grid-cols-1"}`}>
-            <ProofCard from={from} to={to} reduction={fwd} dir="fwd" />
-            {bidi && <ProofCard from={to} to={from} reduction={bwd} dir="bwd" />}
           </div>
-        </TabsContent>
+          
+          <div>
+             <div className="grid sm:grid-cols-2 gap-6">
+                <div>
+                  <div className="font-mono text-[10px] font-bold text-muted-foreground mb-2">3. SOURCE PRIMITIVE (A)</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PRIMS.map((p) => (
+                      <Button key={p} size="sm" variant={from === p ? "default" : "outline"} onClick={() => setFrom(p)} className="font-mono text-xs">
+                        {p}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="font-mono text-[10px] font-bold text-muted-foreground mb-2">4. TARGET PRIMITIVE (B)</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PRIMS.map((p) => (
+                      <Button key={p} size="sm" variant={to === p ? "default" : "outline"} onClick={() => setTo(p)} className="font-mono text-xs">
+                        {p}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6 flex items-center justify-center gap-3 bg-muted/50 p-2 rounded-lg border">
+                <span className="rounded-md border border-gb-yellow/50 bg-gb-yellow/10 px-3 py-1 font-mono text-xs font-bold text-gb-yellow">
+                  {from}
+                </span>
+                <Button size="sm" variant={bidi ? "default" : "outline"} onClick={() => setBidi(!bidi)} className="px-3 h-8">
+                  {bidi ? <ArrowLeftRight className="w-3 h-3 mr-2" /> : <ArrowRight className="w-3 h-3 mr-2" />}
+                  <span className="text-[10px] uppercase font-bold tracking-wider">{bidi ? "Bidirectional" : "Forward"}</span>
+                </Button>
+                <span className="rounded-md border border-gb-aqua/50 bg-gb-aqua/10 px-3 py-1 font-mono text-xs font-bold text-gb-aqua">
+                  {to}
+                </span>
+              </div>
+          </div>
+        </div>
+      </Card>
 
-        <TabsContent value="theory" className="mt-4">
-          <Card className="p-5 space-y-4">
-            <p className="text-sm">
-              In Impagliazzo's <em>Minicrypt</em>, the existence of one-way functions is equivalent
-              to the existence of every other major symmetric primitive:
-            </p>
-            <MB>{`\\text{OWF} \\;\\Longleftrightarrow\\; \\text{PRG} \\;\\Longleftrightarrow\\; \\text{PRF} \\;\\Longleftrightarrow\\; \\text{SKE} \\;\\Longleftrightarrow\\; \\text{MAC}`}</MB>
-            <p className="text-sm">
-              <span className="text-gb-yellow font-mono">HILL</span>: every OWF yields a PRG.
-              <span className="text-gb-aqua font-mono"> GGM</span>: every PRG yields a PRF (PA#2).
-              CRHF is <em>not</em> known to follow from generic OWFs (Simon 1998 separation), so
-              it sits at the edge of the clique.
-            </p>
-            <MB>{`F_k(x_1\\Vert\\dots\\Vert x_n) = G_{x_n}(\\dots G_{x_1}(k)\\dots)`}</MB>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* TIER 2: Two-Column Data Flow */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Column 1: Build Panel */}
+        <Card className="p-0 overflow-hidden flex flex-col h-[400px]">
+          <div className="bg-muted px-4 py-2 border-b flex justify-between items-center">
+            <span className="font-mono text-xs font-bold uppercase">Column 1 | Build Panel</span>
+            <span className="font-mono text-[10px] text-gb-yellow px-2 py-0.5 rounded-full bg-gb-yellow/10 border border-gb-yellow/20">Foundation ⟶ {from}</span>
+          </div>
+          <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-background/50">
+             {chain?.build_steps.map((step, idx) => (
+               <div key={idx} className="bg-card border border-border/60 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow">
+                  <div className="text-gb-purple font-mono font-bold text-xs mb-2">ƒ: {step.func}</div>
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-[50px_1fr] gap-2 items-start">
+                      <span className="text-[9px] text-muted-foreground uppercase font-bold mt-1">Input</span>
+                      <Mono className="bg-muted/50 px-2 py-1 rounded border border-border/40 inline-block">{step.input}</Mono>
+                    </div>
+                    <div className="grid grid-cols-[50px_1fr] gap-2 items-start">
+                      <span className="text-[9px] text-muted-foreground uppercase font-bold mt-1">Output</span>
+                      <Mono className="bg-gb-aqua/10 text-gb-aqua px-2 py-1 rounded border border-gb-aqua/20 inline-block font-bold">{step.output}</Mono>
+                    </div>
+                  </div>
+               </div>
+             ))}
+          </div>
+        </Card>
+
+        {/* Column 2: Reduce Panel */}
+        <Card className="p-0 overflow-hidden flex flex-col h-[400px]">
+          <div className="bg-muted px-4 py-2 border-b flex justify-between items-center">
+            <span className="font-mono text-xs font-bold uppercase">Column 2 | Reduce Panel</span>
+            <span className="font-mono text-[10px] text-gb-aqua px-2 py-0.5 rounded-full bg-gb-aqua/10 border border-gb-aqua/20">
+              {bidi ? `${to} ⟶ ${from}` : `${from} ⟶ ${to}`}
+            </span>
+          </div>
+          <div className="p-4 overflow-y-auto flex-1 space-y-4 bg-background/50">
+            {isStub ? (
+               <div className="flex flex-col items-center justify-center h-full text-center space-y-3 opacity-80 bg-muted/20 rounded-lg border border-dashed">
+                 <ShieldAlert className="w-12 h-12 text-muted-foreground/50" />
+                 <div>
+                   <div className="font-mono font-bold text-muted-foreground">Not implemented yet (due: PA#N)</div>
+                   <div className="text-[11px] mt-1 max-w-[250px] mx-auto text-muted-foreground/80">There is no known black-box reduction or this flow is unsupported. Try another path.</div>
+                 </div>
+               </div>
+            ) : (
+               chain?.reduce_steps.map((step, idx) => (
+                 <div key={idx} className="bg-card border border-border/60 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="text-gb-orange font-mono font-bold text-xs mb-2">ƒ: {step.func}</div>
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-[50px_1fr] gap-2 items-start">
+                        <span className="text-[9px] text-muted-foreground uppercase font-bold mt-1">Input</span>
+                        <Mono className="bg-muted/50 px-2 py-1 rounded border border-border/40 inline-block">{step.input}</Mono>
+                      </div>
+                      <div className="grid grid-cols-[50px_1fr] gap-2 items-start">
+                        <span className="text-[9px] text-muted-foreground uppercase font-bold mt-1">Output</span>
+                        <Mono className="bg-gb-aqua/10 text-gb-aqua px-2 py-1 rounded border border-gb-aqua/20 inline-block font-bold">{step.output}</Mono>
+                      </div>
+                    </div>
+                 </div>
+               ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* TIER 3: Proof Panel */}
+      <div className="pt-2">
+        <div className="font-mono text-[10px] font-bold text-muted-foreground mb-3 uppercase tracking-wider">Formal Proof Summary</div>
+        <div className={`grid gap-4 ${bidi ? "md:grid-cols-2" : "grid-cols-1"}`}>
+          <ProofCard from={from} to={to} reduction={fwd} dir="fwd" />
+          {bidi && <ProofCard from={to} to={from} reduction={bwd} dir="bwd" />}
+        </div>
+      </div>
     </div>
   );
 }
@@ -181,29 +275,29 @@ function ProofCard({
   dir: "fwd" | "bwd";
 }) {
   return (
-    <Card className="p-5">
+    <Card className={`p-5 border-l-4 ${dir === "fwd" ? "border-l-gb-aqua" : "border-l-gb-orange"}`}>
       <div className="flex items-center gap-2 mb-3">
-        {dir === "fwd" ? <ArrowRight className="text-gb-aqua h-4 w-4" /> : <ArrowLeft className="text-gb-purple h-4 w-4" />}
-        <div className="font-mono text-xs text-muted-foreground">REDUCTION</div>
-        <div className="font-mono text-sm">{from} ⟶ {to}</div>
+        {dir === "fwd" ? <ArrowRight className="text-gb-aqua h-4 w-4" /> : <ArrowLeft className="text-gb-orange h-4 w-4" />}
+        <div className="font-mono text-xs text-muted-foreground font-bold tracking-wider">REDUCTION THEOREM</div>
+        <div className="font-mono text-sm ml-auto bg-muted px-2 py-0.5 rounded font-bold">{from} ⟶ {to}</div>
       </div>
       <ol className="space-y-2 text-sm">
         {reduction.steps.map((s, i) => (
-          <li key={i} className="flex gap-2">
-            <span className="font-mono text-gb-yellow shrink-0">{i + 1}.</span>
-            <span>{s}</span>
+          <li key={i} className="flex gap-2 items-start">
+            <span className="font-mono text-muted-foreground shrink-0 text-xs mt-0.5">{i + 1}.</span>
+            <span className="leading-snug">{s}</span>
           </li>
         ))}
       </ol>
-      <div className="mt-3 text-[11px] font-mono text-muted-foreground">refs: {reduction.refs}</div>
+      <div className="mt-4 pt-3 border-t text-[11px] font-mono text-muted-foreground">Implemented in: <span className="font-bold text-foreground">{reduction.refs}</span></div>
       {reduction.refs === "stub" && (
-        <div className="mt-2 rounded-md border border-gb-orange/40 bg-gb-orange/10 px-2 py-1 text-[11px] text-gb-orange font-mono">
-          ⚠ separation result — no black-box construction
+        <div className="mt-2 rounded-md border border-gb-orange/40 bg-gb-orange/10 px-2 py-1.5 text-[11px] text-gb-orange font-mono">
+          ⚠ Separation result — no generic black-box construction is known.
         </div>
       )}
       {from === to && (
-        <div className="mt-2 text-[11px] text-muted-foreground">
-          <M>F=F</M> — nothing to reduce.
+        <div className="mt-2 text-[11px] text-muted-foreground italic">
+          Identity transformation — nothing to reduce.
         </div>
       )}
     </Card>
