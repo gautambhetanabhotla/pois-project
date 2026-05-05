@@ -23,7 +23,7 @@ export const PA_LIST: PAEntry[] = [
   { n: 12, title: "Textbook RSA", short: "KeyGen / Enc / Dec with toy primes.", part: "Public-Key", color: "blue" },
   { n: 13, title: "Miller–Rabin", short: "Probabilistic primality testing.", part: "Public-Key", color: "blue" },
   { n: 14, title: "CRT & RSA Speedups", short: "CRT decryption, common-modulus break.", part: "Public-Key", color: "blue" },
-  { n: 15, title: "RSA Padding & Oracles", short: "PKCS#1 v1.5 vs OAEP, Bleichenbacher.", part: "Public-Key", color: "blue" },
+  { n: 15, title: "RSA Sign and Verify", short: "RSA signature, verification and RSA Forgery.", part: "Public-Key", color: "blue" },
   { n: 16, title: "ElGamal", short: "DDH-based public-key encryption.", part: "Public-Key", color: "blue" },
   { n: 17, title: "Digital Signatures", short: "RSA-FDH & Schnorr sign/verify.", part: "Public-Key", color: "blue" },
   { n: 18, title: "Oblivious Transfer", short: "1-of-2 OT from RSA.", part: "MPC", color: "purple" },
@@ -32,7 +32,7 @@ export const PA_LIST: PAEntry[] = [
 ];
 
 export const PARTS: { key: PAPart; label: string; color: PAEntry["color"] }[] = [
-  { key: "Prelude", label: "Prelude", color: "yellow" },
+  { key: "Prelude", label: "Prelude", color: "yellow" },  
   { key: "Symmetric", label: "Symmetric Crypto", color: "green" },
   { key: "Hashing", label: "Hashing & Auth", color: "aqua" },
   { key: "Public-Key", label: "Public-Key Crypto", color: "blue" },
