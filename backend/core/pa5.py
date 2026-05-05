@@ -1,7 +1,7 @@
 import os
-import secrets
 import unittest
 from pa4 import prp_encrypt, pkcs7_pad, xor_bytes, BLOCK_SIZE
+from pa1 import compare_digest
 
 # -----------------------------------------------------------------------------
 # PHASE 1: PRF-MAC (Fixed-Length)
@@ -14,7 +14,7 @@ def prf_mac(k: bytes, m: bytes) -> bytes:
 def prf_vrfy(k: bytes, m: bytes, t: bytes) -> bool:
     try:
         expected_tag = prf_mac(k, m)
-        return secrets.compare_digest(expected_tag, t)
+        return compare_digest(expected_tag, t)
     except ValueError:
         return False
 
@@ -33,7 +33,7 @@ def cbc_mac(k: bytes, m: bytes) -> bytes:
 
 def cbc_vrfy(k: bytes, m: bytes, t: bytes) -> bool:
     expected_tag = cbc_mac(k, m)
-    return secrets.compare_digest(expected_tag, t)
+    return compare_digest(expected_tag, t)
 
 # -----------------------------------------------------------------------------
 # PHASE 3: Unified Interface
@@ -100,17 +100,15 @@ if __name__ == '__main__':
     print("Conclusion: Extremely low probability of forgery without the key.")
 
     # 3. Length-Extension Vulnerability Demo
-    import hashlib
     print("\n3. Length-Extension Vulnerability Demo (Naive Hash MAC)")
     secret_k = b"secret_key_12345"
     m_original = b"user=admin&action=read"
     
-    h_original = hashlib.sha256(secret_k + m_original).hexdigest()
     print(f"Original M: {m_original}")
-    print(f"Original Tag H(K||M): {h_original}")
+    print("Original Tag H(K||M): [computed hash value here]")
     
     print("Attacker intercepts M and Tag. They DO NOT know K.")
-    print("Because SHA-256 uses Merkle-Damgard construction, attacker can initialize a SHA-256 state")
+    print("Because Merkle-Damgard hashes process data in blocks, an attacker can initialize the hash state")
     print("with the Original Tag, and hash new data, effectively computing H(K || M || padding || attacker_data).")
     print("This perfectly defeats the MAC integrity, which is why we must use CBC-MAC or HMAC!")
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-import secrets
 import time
 from typing import List, Dict
 
@@ -114,7 +113,7 @@ def hastad_attack(ciphertexts: list[int], moduli: list[int], e: int) -> int:
 
 def _get_prime(bits: int) -> int:
     while True:
-        p = secrets.randbits(bits)
+        p = pa1.randbits(bits)
         p |= (1 << (bits - 1)) | 1
         if pa1.miller_rabin(p):
             return p
@@ -207,7 +206,7 @@ class TestPA14(unittest.TestCase):
         
     def test_crt(self):
         self.assertEqual(crt([2, 3, 2], [3, 5, 7]), 23)
-        self.assertEqual(crt([3, 4, 5], [5, 7, 11]), 358)
+        self.assertEqual(crt([3, 4, 5], [5, 7, 11]), 368)
         
     def test_integer_root(self):
         self.assertEqual(integer_nth_root(27, 3), 3)

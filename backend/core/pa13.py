@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-import secrets
+import math
 import time
+from pa1 import randbelow, randbits
 
 # -----------------------------------------------------------------------------
 # PHASE 1: Miller-Rabin Primality Testing
@@ -18,11 +19,14 @@ def miller_rabin(n: int, k: int = 40) -> bool:
         return False
         
     d = n - 1
-    s = int(math.floor(math.log2(d)))
-    d = d // (2 ** s)
+    d = n - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
         
     for _ in range(k):
-        a = secrets.randbelow(n - 3) + 2  # Range [2, n-2]
+        a = randbelow(n - 3) + 2  # Range [2, n-2]
         x = pow(a, d, n)
         if x == 1 or x == n - 1:
             continue
@@ -47,7 +51,7 @@ def gen_prime(bits: int) -> int:
     """Generate a probable prime of specified bit-length."""
     while True:
         # Generate an odd number of exactly 'bits' length
-        n = secrets.randbits(bits)
+        n = randbits(bits)
         n |= (1 << (bits - 1)) | 1
         
         if miller_rabin(n, 40):

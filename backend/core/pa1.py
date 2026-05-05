@@ -3,11 +3,37 @@ from __future__ import annotations
 
 import math
 import os
-import secrets
 import sys
 import time
 import unittest
 from typing import Callable, Tuple
+
+def randbits(k: int) -> int:
+    """Generate k random bits using os.urandom."""
+    if k <= 0:
+        raise ValueError("number of bits must be greater than zero")
+    num_bytes = (k + 7) // 8
+    x = int.from_bytes(os.urandom(num_bytes), "big")
+    return x >> (num_bytes * 8 - k)
+
+def randbelow(n: int) -> int:
+    """Generate a random integer in [0, n) using os.urandom."""
+    if n <= 0:
+        raise ValueError("n must be > 0")
+    k = n.bit_length()
+    while True:
+        r = randbits(k)
+        if r < n:
+            return r
+
+def compare_digest(a: bytes, b: bytes) -> bool:
+    """Constant-time comparison of two byte strings."""
+    if len(a) != len(b):
+        return False
+    result = 0
+    for x, y in zip(a, b):
+        result |= x ^ y
+    return result == 0
 
 
 # 1. SELF-CONTAINED MILLER-RABIN PRIMALITY TEST
@@ -35,7 +61,7 @@ def miller_rabin(n: int, rounds: int = 40) -> bool:
         s += 1
 
     for _ in range(rounds):
-        a = secrets.randbelow(n - 3) + 2
+        a = randbelow(n - 3) + 2
         x = pow(a, d, n)
         if x == 1 or x == n - 1:
             continue
