@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
 import { hexToBytes } from "@/lib/crypto-helpers";
 
 function Mono({ children }: { children: React.ReactNode }) {
@@ -20,6 +21,27 @@ export function PA1() {
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Verdict from the on-demand "Randomness test" button. Cleared whenever
+  // new PRG output arrives so we don't show a stale pass/fail.
+  const [verdict, setVerdict] = useState<{
+    pass: boolean; mono: number; runs: number;
+    monoPass: boolean; runsPass: boolean; ratio: number;
+  } | null>(null);
+
+  // Wipe any previous verdict as soon as the underlying PRG output changes.
+  useEffect(() => { setVerdict(null); }, [stats]);
+
+  function runRandomnessTest() {
+    if (!stats) return;
+    const monoPass = stats.mono > 0.01;
+    const runsPass = stats.runs > 0.01;
+    setVerdict({
+      pass: monoPass && runsPass,
+      mono: stats.mono, runs: stats.runs,
+      monoPass, runsPass,
+      ratio: stats.ratio,
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +100,57 @@ export function PA1() {
           {out || (loading ? "…" : "(no output)")}
         </pre>
       </div>
+      {/* Randomness test — explicit pass/fail verdict on demand */}
+      <Card className="p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <Label>Randomness test</Label>
+            <div className="text-[11px] text-muted-foreground">
+              NIST monobit (frequency) + runs tests on the current PRG output.
+              Pass ⇔ both p-values &gt; 0.01.
+            </div>
+          </div>
+          <Button
+            onClick={runRandomnessTest}
+            disabled={!stats || loading}
+            className="font-mono shrink-0"
+          >
+            Run test
+          </Button>
+        </div>
+        {verdict && (
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className={`px-3 py-1 rounded-md font-mono font-bold text-sm border ${
+                verdict.pass
+                  ? "bg-gb-green/15 text-gb-green border-gb-green/40"
+                  : "bg-gb-red/15 text-gb-red border-gb-red/40"
+              }`}>
+                {verdict.pass ? "PASS" : "FAIL"}
+              </div>
+              <Mono>
+                monobit p={verdict.mono.toFixed(4)} ({verdict.monoPass ? "ok" : "fail"})
+                {" · "}
+                runs p={verdict.runs.toFixed(4)} ({verdict.runsPass ? "ok" : "fail"})
+              </Mono>
+            </div>
+            <div>
+              <div className="flex justify-between text-[11px] font-mono text-muted-foreground mb-1">
+                <span>bit ratio: {(verdict.ratio * 100).toFixed(1)}% ones</span>
+                <span>target ≈ 50%</span>
+              </div>
+              <div className="relative h-3 rounded bg-muted overflow-hidden">
+                <div
+                  className={`h-full ${verdict.pass ? "bg-gb-green" : "bg-gb-red"}`}
+                  style={{ width: `${verdict.ratio * 100}%` }}
+                />
+                {/* 50% reference marker */}
+                <div className="absolute top-0 bottom-0 w-px bg-gb-yellow opacity-80" style={{ left: "50%" }} />
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
       <div className="grid grid-cols-2 gap-4">
         <Card className="p-3">
           <Label>Frequency test (1-bits)</Label>
