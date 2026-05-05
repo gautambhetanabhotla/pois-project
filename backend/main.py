@@ -1308,6 +1308,18 @@ def hmac_sha256(key: bytes, msg: bytes) -> bytes:
 
 # --- PA #11 — Diffie-Hellman --------------------------------------------------
 
+class PA11ParamsRes(BaseModel):
+    p: str
+    g: str
+
+@app.get("/api/pa11/params", response_model=PA11ParamsRes)
+def pa11_params():
+    # 32-bit safe prime for instant toy computation
+    p = pa11.generate_safe_prime(32)
+    G = pa11.Group(p)
+    g = G.generator()
+    return PA11ParamsRes(p=hex(p), g=hex(g.value))
+
 class PA11DHReq(BaseModel):
     p: str
     g: str
@@ -1322,69 +1334,168 @@ class PA11DHRes(BaseModel):
 
 @app.post("/api/pa11/dh", response_model=PA11DHRes)
 def pa11_dh(req: PA11DHReq):
-    # Use python's built-in pow for large integers, matching pa11.GroupElement
-    p_val = int(req.p)
-    g_val = int(req.g)
-    a_val = int(req.a)
-    b_val = int(req.b)
+    p_val = int(req.p, 16) if req.p.startswith('0x') else int(req.p)
+    g_val = int(req.g, 16) if req.g.startswith('0x') else int(req.g)
+    a_val = int(req.a, 16) if req.a.startswith('0x') else int(req.a)
+    b_val = int(req.b, 16) if req.b.startswith('0x') else int(req.b)
     
-    A = pow(g_val, a_val, p_val)
-    B = pow(g_val, b_val, p_val)
-    sharedA = pow(B, a_val, p_val)
-    sharedB = pow(A, b_val, p_val)
+    G = pa11.Group(p_val)
+    g_elem = pa11.GroupElement(g_val, G)
+    
+    A = g_elem ** a_val
+    B = g_elem ** b_val
+    
+    sharedA = pa11.dh_alice_step2(a_val, B)
+    sharedB = pa11.dh_bob_step2(b_val, A)
     
     return PA11DHRes(
-        A=str(A),
-        B=str(B),
-        sharedA=str(sharedA),
-        sharedB=str(sharedB)
+        A=hex(A.value),
+        B=hex(B.value),
+        sharedA=hex(sharedA.value),
+        sharedB=hex(sharedB.value)
+    )
+
+class PA11DHMitmReq(BaseModel):
+    p: str
+    g: str
+    a: str
+    b: str
+    e: str
+
+class PA11DHMitmRes(BaseModel):
+    A: str
+    B: str
+    A_prime: str
+    B_prime: str
+    sharedA: str
+    sharedB: str
+    sharedEveA: str
+    sharedEveB: str
+
+@app.post("/api/pa11/dh_mitm", response_model=PA11DHMitmRes)
+def pa11_dh_mitm(req: PA11DHMitmReq):
+    p_val = int(req.p, 16) if req.p.startswith('0x') else int(req.p)
+    g_val = int(req.g, 16) if req.g.startswith('0x') else int(req.g)
+    a_val = int(req.a, 16) if req.a.startswith('0x') else int(req.a)
+    b_val = int(req.b, 16) if req.b.startswith('0x') else int(req.b)
+    e_val = int(req.e, 16) if req.e.startswith('0x') else int(req.e)
+    
+    G = pa11.Group(p_val)
+    g_elem = pa11.GroupElement(g_val, G)
+    
+    A = g_elem ** a_val
+    B = g_elem ** b_val
+    
+    A_prime, B_prime, shared_eve_alice, shared_eve_bob = pa11.mitm_attack(G, g_elem, A, B, e_val)
+    
+    # Alice receives B_prime instead of B
+    sharedA = pa11.dh_alice_step2(a_val, B_prime)
+    # Bob receives A_prime instead of A
+    sharedB = pa11.dh_bob_step2(b_val, A_prime)
+    
+    return PA11DHMitmRes(
+        A=hex(A.value),
+        B=hex(B.value),
+        A_prime=hex(A_prime.value),
+        B_prime=hex(B_prime.value),
+        sharedA=hex(sharedA.value),
+        sharedB=hex(sharedB.value),
+        sharedEveA=hex(shared_eve_alice.value),
+        sharedEveB=hex(shared_eve_bob.value)
+    )
+
+class PA11CDHReq(BaseModel):
+    p: str
+    g: str
+    A: str
+    B: str
+
+class PA11CDHRes(BaseModel):
+    shared: str
+    elapsed: float
+
+@app.post("/api/pa11/cdh", response_model=PA11CDHRes)
+def pa11_cdh(req: PA11CDHReq):
+    p_val = int(req.p, 16) if req.p.startswith('0x') else int(req.p)
+    g_val = int(req.g, 16) if req.g.startswith('0x') else int(req.g)
+    A_val = int(req.A, 16) if req.A.startswith('0x') else int(req.A)
+    B_val = int(req.B, 16) if req.B.startswith('0x') else int(req.B)
+    
+    G = pa11.Group(p_val)
+    g_elem = pa11.GroupElement(g_val, G)
+    A_elem = pa11.GroupElement(A_val, G)
+    B_elem = pa11.GroupElement(B_val, G)
+    
+    try:
+        shared, elapsed = pa11.brute_force_cdh(G, g_elem, A_elem, B_elem)
+    except ValueError:
+        return PA11CDHRes(shared="error", elapsed=0)
+        
+    return PA11CDHRes(
+        shared=hex(shared.value),
+        elapsed=elapsed
     )
 
 
-# --- PA #12 — Textbook RSA ----------------------------------------------------
+# --- PA #12 — RSA and PKCS#1 v1.5 ---------------------------------------------
 
-class PA12RsaReq(BaseModel):
+class PA12KeygenRes(BaseModel):
+    n: str
+    e: str
+    d: str
     p: str
     q: str
-    e: str
-    m: str
 
-class PA12RsaRes(BaseModel):
+@app.get("/api/pa12/keygen", response_model=PA12KeygenRes)
+def pa12_keygen():
+    # Generate 512-bit RSA keys
+    pk, sk = pa12.keygen(512)
+    return PA12KeygenRes(
+        n=hex(pk[0]),
+        e=hex(pk[1]),
+        d=hex(sk[1]),
+        p=hex(sk[2]),
+        q=hex(sk[3])
+    )
+
+class PA12EncryptTwiceReq(BaseModel):
     n: str
-    phi: str
-    d: str
-    c: str
-    m_recovered: str
-    error: str = ""
+    e: str
+    message: str
 
-@app.post("/api/pa12/rsa", response_model=PA12RsaRes)
-def pa12_rsa(req: PA12RsaReq):
-    try:
-        p_val = int(req.p)
-        q_val = int(req.q)
-        e_val = int(req.e)
-        m_val = int(req.m)
-        
-        n_val = p_val * q_val
-        phi_val = (p_val - 1) * (q_val - 1)
-        
-        d_val = pa12.mod_inverse(e_val, phi_val)
-        
-        pk = (n_val, e_val)
-        sk = (n_val, d_val)
-        
-        c_val = pa12.encrypt(pk, m_val)
-        m_rec = pa12.decrypt(sk, c_val)
-        
-        return PA12RsaRes(
-            n=str(n_val),
-            phi=str(phi_val),
-            d=str(d_val),
-            c=str(c_val),
-            m_recovered=str(m_rec)
-        )
-    except Exception as e:
-        return PA12RsaRes(n="", phi="", d="", c="", m_recovered="", error=str(e))
+class PA12EncryptTwiceRes(BaseModel):
+    textbook_c1: str
+    textbook_c2: str
+    pkcs15_c1: str
+    pkcs15_c2: str
+    pkcs15_ps1: str
+    pkcs15_ps2: str
+
+@app.post("/api/pa12/encrypt_twice", response_model=PA12EncryptTwiceRes)
+def pa12_encrypt_twice(req: PA12EncryptTwiceReq):
+    n = int(req.n, 16) if req.n.startswith('0x') else int(req.n)
+    e = int(req.e, 16) if req.e.startswith('0x') else int(req.e)
+    pk = (n, e)
+    
+    m_bytes = req.message.encode("utf-8")
+    m_int = int.from_bytes(m_bytes, "big")
+    
+    # Textbook RSA
+    tb_c1 = pa12.rsa_enc(pk, m_int)
+    tb_c2 = pa12.rsa_enc(pk, m_int)
+    
+    # PKCS#1 v1.5
+    pkcs_c1, ps1 = pa12.pkcs15_enc(pk, m_bytes)
+    pkcs_c2, ps2 = pa12.pkcs15_enc(pk, m_bytes)
+    
+    return PA12EncryptTwiceRes(
+        textbook_c1=hex(tb_c1),
+        textbook_c2=hex(tb_c2),
+        pkcs15_c1=hex(pkcs_c1),
+        pkcs15_c2=hex(pkcs_c2),
+        pkcs15_ps1=ps1.hex(),
+        pkcs15_ps2=ps2.hex()
+    )
 
 
 # --- PA #13 — Miller-Rabin ----------------------------------------------------
