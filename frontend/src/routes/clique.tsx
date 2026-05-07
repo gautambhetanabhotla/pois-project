@@ -16,7 +16,7 @@ export const Route = createFileRoute("/clique")({
   component: CliquePage,
 });
 
-const PRIMS = ["OWF", "PRG", "PRF", "SKE", "MAC", "CRHF"] as const;
+const PRIMS = ["OWF", "PRG", "PRF", "MAC"] as const;
 type Prim = typeof PRIMS[number];
 
 type ChainStep = { func: string; input: string; output: string };
@@ -27,50 +27,50 @@ const REDUCTIONS: Record<Prim, Record<Prim, { steps: string[]; refs: string }>> 
     OWF: { steps: ["Identity."], refs: "trivial" },
     PRG: { steps: ["Apply HILL theorem.", "Hardcore bit via Goldreich–Levin."], refs: "PA#1" },
     PRF: { steps: ["OWF → PRG (HILL).", "PRG → PRF (GGM tree, PA#2)."], refs: "PA#1, PA#2" },
-    SKE: { steps: ["OWF → PRF.", "PRF + IV → CPA-secure SKE."], refs: "PA#1–3" },
+    // SKE: { steps: ["OWF → PRF.", "PRF + IV → CPA-secure SKE."], refs: "PA#1–3" },
     MAC: { steps: ["OWF → PRF.", "PRF as a fixed-length MAC."], refs: "PA#5" },
-    CRHF: { steps: ["Open in standard model from OWFs alone (separation, Simon)."], refs: "stub" },
+    // CRHF: { steps: ["Open in standard model from OWFs alone (separation, Simon)."], refs: "stub" },
   },
   PRG: {
     OWF: { steps: ["A PRG is itself a OWF (length-doubling, hard to invert)."], refs: "PA#1" },
     PRG: { steps: ["Identity."], refs: "trivial" },
     PRF: { steps: ["GGM binary tree of depth n with PRG at each node."], refs: "PA#2" },
-    SKE: { steps: ["Use PRG to derive a one-time pad of message length."], refs: "PA#3" },
+    // SKE: { steps: ["Use PRG to derive a one-time pad of message length."], refs: "PA#3" },
     MAC: { steps: ["PRG → PRF → MAC."], refs: "PA#2, PA#5" },
-    CRHF: { steps: ["Black-box separation; no construction known."], refs: "stub" },
+    // CRHF: { steps: ["Black-box separation; no construction known."], refs: "stub" },
   },
   PRF: {
     OWF: { steps: ["PRF on a single point is a OWF."], refs: "PA#1" },
     PRG: { steps: ["Evaluate PRF on disjoint inputs."], refs: "PA#1" },
     PRF: { steps: ["Identity."], refs: "trivial" },
-    SKE: { steps: ["Encrypt: c = (r, F_k(r) ⊕ m) — IND-CPA from PRF."], refs: "PA#3" },
+    // SKE: { steps: ["Encrypt: c = (r, F_k(r) ⊕ m) — IND-CPA from PRF."], refs: "PA#3" },
     MAC: { steps: ["MAC(k, m) = F_k(m). Selectively secure for fixed-length m."], refs: "PA#5" },
-    CRHF: { steps: ["No black-box reduction."], refs: "stub" },
+    // CRHF: { steps: ["No black-box reduction."], refs: "stub" },
   },
-  SKE: {
-    OWF: { steps: ["A CPA-secure SKE implies a OWF."], refs: "PA#1" },
-    PRG: { steps: ["SKE → OWF → PRG (HILL)."], refs: "PA#1" },
-    PRF: { steps: ["Long path via OWF → PRG → PRF."], refs: "PA#1–2" },
-    SKE: { steps: ["Identity."], refs: "trivial" },
-    MAC: { steps: ["SKE → OWF → PRF → MAC."], refs: "PA#5" },
-    CRHF: { steps: ["Black-box separation."], refs: "stub" },
-  },
+  // SKE: {
+  //   OWF: { steps: ["A CPA-secure SKE implies a OWF."], refs: "PA#1" },
+  //   PRG: { steps: ["SKE → OWF → PRG (HILL)."], refs: "PA#1" },
+  //   PRF: { steps: ["Long path via OWF → PRG → PRF."], refs: "PA#1–2" },
+  //   // SKE: { steps: ["Identity."], refs: "trivial" },
+  //   MAC: { steps: ["SKE → OWF → PRF → MAC."], refs: "PA#5" },
+  //   // CRHF: { steps: ["Black-box separation."], refs: "stub" },
+  // },
   MAC: {
     OWF: { steps: ["A secure MAC implies a OWF."], refs: "PA#1" },
     PRG: { steps: ["MAC → OWF → PRG."], refs: "PA#1" },
     PRF: { steps: ["MAC → OWF → PRG → PRF."], refs: "PA#1–2" },
-    SKE: { steps: ["MAC → OWF → … → SKE."], refs: "PA#3" },
+    // SKE: { steps: ["MAC → OWF → … → SKE."], refs: "PA#3" },
     MAC: { steps: ["Identity."], refs: "trivial" },
-    CRHF: { steps: ["Black-box separation."], refs: "stub" },
+    // CRHF: { steps: ["Black-box separation."], refs: "stub" },
   },
-  CRHF: {
-    OWF: { steps: ["A CRHF is a OWF (collision implies inversion of compression)."], refs: "PA#1" },
-    PRG: { steps: ["CRHF → OWF → PRG."], refs: "PA#1" },
-    PRF: { steps: ["CRHF → OWF → … → PRF."], refs: "PA#2" },
-    SKE: { steps: ["CRHF → OWF → … → SKE."], refs: "PA#3" },
-    MAC: { steps: ["CRHF + key → HMAC-style PRF → MAC."], refs: "PA#10" },
-    CRHF: { steps: ["Identity."], refs: "trivial" },
-  },
+  // CRHF: {
+  //   OWF: { steps: ["A CRHF is a OWF (collision implies inversion of compression)."], refs: "PA#1" },
+  //   PRG: { steps: ["CRHF → OWF → PRG."], refs: "PA#1" },
+  //   PRF: { steps: ["CRHF → OWF → … → PRF."], refs: "PA#2" },
+  //   SKE: { steps: ["CRHF → OWF → … → SKE."], refs: "PA#3" },
+  //   MAC: { steps: ["CRHF + key → HMAC-style PRF → MAC."], refs: "PA#10" },
+  //   CRHF: { steps: ["Identity."], refs: "trivial" },
+  // },
 };
 
 function Mono({ children, className = "" }: { children: React.ReactNode, className?: string }) {
