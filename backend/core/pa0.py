@@ -3,29 +3,43 @@ PA#0: Minicrypt Scaffolding & Data Flow Logic
 Implements Foundation stubs and chaining execution paths to demonstrate the reduction flows.
 """
 
-import hashlib
+import pa1, pa2, pa4, pa5, pa7
+
+def _to_bytes(s: str, length: int = 16) -> bytes:
+    """Helper to convert hex string or plain string to bytes of fixed length."""
+    if s.startswith("0x"):
+        try:
+            b = bytes.fromhex(s[2:])
+        except ValueError:
+            b = s.encode()
+    else:
+        b = s.encode()
+    return b.ljust(length, b'\x00')[:length]
+
+def _from_bytes(b: bytes) -> str:
+    """Helper to convert bytes to hex string."""
+    return f"0x{b.hex()}"
 
 class AESFoundation:
     def asOWF(self, x: str) -> str:
-        h = hashlib.sha256(f"AES_OWF_{x}".encode()).hexdigest()
-        return f"0x{h[:16]}"
+        # Simulate OWF with AES-128 using a fixed key
+        k = b"AES_FOUNDATION_K"
+        return _from_bytes(pa2.prp_encrypt(k, _to_bytes(x))[:8])
         
     def asPRF(self, k: str, x: str) -> str:
-        h = hashlib.sha256(f"AES_PRF_{k}_{x}".encode()).hexdigest()
-        return f"0x{h[:16]}"
+        return _from_bytes(pa2.F(_to_bytes(k), _to_bytes(x))[:8])
         
     def asPRP(self, k: str, x: str) -> str:
-        h = hashlib.sha256(f"AES_PRP_{k}_{x}".encode()).hexdigest()
-        return f"0x{h[:16]}"
+        return _from_bytes(pa2.prp_encrypt(_to_bytes(k), _to_bytes(x))[:8])
 
 class DLPFoundation:
     def asOWF(self, x: str) -> str:
-        h = hashlib.sha256(f"DLP_OWF_{x}".encode()).hexdigest()
-        return f"0x{h[:16]}"
+        # DLP-based OWF (g^x mod p)
+        return _from_bytes(pa1.owf(_to_bytes(x))[:8])
         
     def asOWP(self, x: str) -> str:
-        h = hashlib.sha256(f"DLP_OWP_{x}".encode()).hexdigest()
-        return f"0x{h[:16]}"
+        # DLP-based OWP
+        return _from_bytes(pa1.owf(_to_bytes(x))[:8])
 
 def get_foundation(name: str):
     if name.upper() == "AES":
@@ -44,8 +58,7 @@ def build_chain(foundation_name: str, target: str, key: str, msg: str):
     elif target == "PRG":
         out1 = f.asOWF(key)
         steps.append({"func": f"{foundation_name}.asOWF", "input": key, "output": out1})
-        h = hashlib.sha256(f"PRG_{out1}".encode()).hexdigest()
-        out2 = f"0x{h[:32]}"
+        out2 = _from_bytes(pa1.PRG(_to_bytes(out1), 32))
         steps.append({"func": "HILL_PRG_Expansion", "input": out1, "output": out2})
         
     elif target == "PRF":
@@ -55,9 +68,11 @@ def build_chain(foundation_name: str, target: str, key: str, msg: str):
         else:
             out1 = f.asOWF(key)
             steps.append({"func": "DLP.asOWF", "input": key, "output": out1})
-            out2 = f"0x{hashlib.sha256(out1.encode()).hexdigest()[:32]}"
+            out2 = _from_bytes(pa1.PRG(_to_bytes(out1), 32))
             steps.append({"func": "HILL_PRG", "input": out1, "output": out2})
-            out3 = f"0x{hashlib.sha256((out2+msg).encode()).hexdigest()[:16]}"
+            # GGM Tree: Use first 4 bits of msg for demo path
+            msg_bits = [(ord(msg[0]) >> i) & 1 for i in range(4)] if msg else [0,0,0,0]
+            out3 = _from_bytes(pa2.F_ggm(_to_bytes(out2), msg_bits))
             steps.append({"func": "GGM_Tree", "input": f"k={out2}, x={msg}", "output": out3})
             
     elif target == "SKE":
@@ -65,10 +80,10 @@ def build_chain(foundation_name: str, target: str, key: str, msg: str):
             prf_out = f.asPRF(key, "0001")
             steps.append({"func": "AES.asPRF (derive pad)", "input": f"k={key}, IV=0001", "output": prf_out})
         else:
-            prf_out = f"0x{hashlib.sha256(key.encode()).hexdigest()[:16]}"
+            prf_out = _from_bytes(pa2.F_ggm(_to_bytes(key), [0,0,0,1]))
             steps.append({"func": "DLP -> PRF (GGM)", "input": f"k={key}, IV=0001", "output": prf_out})
             
-        c = f"0x{hashlib.sha256((prf_out + msg).encode()).hexdigest()[:16]}"
+        c = _from_bytes(pa4.xor_bytes(_to_bytes(prf_out), _to_bytes(msg))[:8])
         steps.append({"func": "XOR_Pad", "input": f"m={msg}, pad={prf_out}", "output": c})
         
     elif target == "MAC":
@@ -76,7 +91,7 @@ def build_chain(foundation_name: str, target: str, key: str, msg: str):
             mac_out = f.asPRF(key, msg)
             steps.append({"func": "AES.asPRF (MAC)", "input": f"k={key}, m={msg}", "output": mac_out})
         else:
-            mac_out = f"0x{hashlib.sha256((key+msg).encode()).hexdigest()[:16]}"
+            mac_out = _from_bytes(pa5.Mac('CBC', _to_bytes(key), _to_bytes(msg))[:8])
             steps.append({"func": "DLP -> PRF -> MAC", "input": f"k={key}, m={msg}", "output": mac_out})
             
     elif target == "CRHF":
@@ -97,36 +112,41 @@ def reduce_chain(source: str, target: str, key: str, msg: str):
         return steps
         
     if source == "CRHF" and target == "MAC":
-        h = hashlib.sha256(msg.encode()).hexdigest()[:16]
-        steps.append({"func": "CRHF_Hash", "input": msg, "output": f"0x{h}"})
-        mac = hashlib.sha256((key+h).encode()).hexdigest()[:16]
-        steps.append({"func": "HMAC_Construct", "input": f"k={key}, h=0x{h}", "output": f"0x{mac}"})
+        h = _from_bytes(pa7.md_hash(_to_bytes(msg))[:8])
+        steps.append({"func": "CRHF_Hash", "input": msg, "output": h})
+        mac = _from_bytes(pa5.Mac('CBC', _to_bytes(key), _to_bytes(h))[:8])
+        steps.append({"func": "HMAC_Construct", "input": f"k={key}, h={h}", "output": mac})
         return steps
         
     if source == "PRG" and target == "PRF":
-        h = hashlib.sha256(key.encode()).hexdigest()[:16]
-        steps.append({"func": "PRG_Expand", "input": key, "output": f"0x{h}"})
-        steps.append({"func": "GGM_Tree", "input": f"G={h}, x={msg}", "output": f"0x{hashlib.sha256((h+msg).encode()).hexdigest()[:16]}"})
+        h = _from_bytes(pa1.PRG(_to_bytes(key), 16)[:8])
+        steps.append({"func": "PRG_Expand", "input": key, "output": h})
+        # GGM Tree simulation
+        res = _from_bytes(pa2.F_ggm(_to_bytes(h), [1,0,1,0]))
+        steps.append({"func": "GGM_Tree", "input": f"G={h}, x={msg}", "output": res})
         return steps
         
     if source == "OWF" and target == "PRG":
-        out1 = f"0x{hashlib.sha256(msg.encode()).hexdigest()[:16]}"
+        out1 = _from_bytes(pa1.owf(_to_bytes(msg))[:8])
         steps.append({"func": "OWF_Eval", "input": msg, "output": out1})
-        steps.append({"func": "Goldreich_Levin", "input": out1, "output": f"0x{hashlib.sha256(out1.encode()).hexdigest()[:32]}"})
+        out2 = _from_bytes(pa1.PRG(_to_bytes(out1), 32))
+        steps.append({"func": "Goldreich_Levin", "input": out1, "output": out2})
         return steps
         
     if source == "PRF" and target == "MAC":
-        mac = f"0x{hashlib.sha256((key+msg).encode()).hexdigest()[:16]}"
+        mac = _from_bytes(pa5.Mac('PRF', _to_bytes(key), _to_bytes(msg))[:8])
         steps.append({"func": "PRF_Eval", "input": f"k={key}, m={msg}", "output": mac})
         return steps
         
     if source == "PRF" and target == "SKE":
-        pad = f"0x{hashlib.sha256(key.encode()).hexdigest()[:16]}"
+        pad = _from_bytes(pa2.F(_to_bytes(key), b"\x00"*16)[:8])
         steps.append({"func": "PRF_Derive_Pad", "input": f"k={key}, IV=0001", "output": pad})
-        steps.append({"func": "XOR", "input": f"pad={pad}, m={msg}", "output": f"0x{hashlib.sha256((pad+msg).encode()).hexdigest()[:16]}"})
+        c = _from_bytes(pa4.xor_bytes(_to_bytes(pad), _to_bytes(msg))[:8])
+        steps.append({"func": "XOR", "input": f"pad={pad}, m={msg}", "output": c})
         return steps
 
     # Fallback generic stub step
-    steps.append({"func": f"Reduction_{source}_to_{target}", "input": f"k={key}, x={msg}", "output": f"0x{hashlib.sha256((source+target+key+msg).encode()).hexdigest()[:16]}"})
+    fallback = _from_bytes(pa2.F(_to_bytes(source + target), _to_bytes(key + msg))[:8])
+    steps.append({"func": f"Reduction_{source}_to_{target}", "input": f"k={key}, x={msg}", "output": fallback})
     
     return steps

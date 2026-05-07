@@ -8,7 +8,7 @@ import { MB } from "@/components/Math";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "PoIS — Interactive Cryptography Dashboard" },
+      { title: "PoIS Project: Interactive Cryptography Dashboard" },
       {
         name: "description",
         content:
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/")({
       {
         property: "og:description",
         content:
-          "From OWFs to Garbled Circuits — a Gruvbox-themed playground for the entire CS8.401 PoIS course.",
+          "From OWFs to Garbled Circuits — a playground for the entire CS8.401 PoIS course.",
       },
     ],
   }),
@@ -92,12 +92,12 @@ function Home() {
             <Link to="/clique">Open Explorer <ArrowRight className="ml-1" /></Link>
           </Button>
         </div>
-        <Card className="p-6 overflow-hidden">
+        {/* <Card className="p-6 overflow-hidden">
           <CliqueDiagram />
           <div className="mt-4 text-center text-sm text-muted-foreground">
             <MB>{`\\text{OWF} \\;\\Longleftrightarrow\\; \\text{PRG} \\;\\Longleftrightarrow\\; \\text{PRF} \\;\\Longleftrightarrow\\; \\text{SKE} \\;\\Longleftrightarrow\\; \\text{MAC} \\;\\Longleftrightarrow\\; \\text{CRHF}`}</MB>
           </div>
-        </Card>
+        </Card> */}
       </section>
 
       {/* PA Grid */}
